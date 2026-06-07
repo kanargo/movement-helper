@@ -5,6 +5,7 @@ local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
+local Mouse = LocalPlayer:GetMouse()
 
 if not cloneref then getgenv().cloneref = function(instance) return instance end end
 
@@ -54,21 +55,30 @@ local HEADLESS_MESH_ID = "rbxassetid://1095708"
 local KORBLOX_MESH_ID = "rbxassetid://101851696"
 local KORBLOX_TEXTURE_ID = "rbxassetid://101851254"
 
--- Biến cấu hình Hitbox nhỏ gọn mặc định
-local customHitboxEnabled = false
-local CACTUS_WIDTH  = 3.0  -- Giảm mặc định xuống 3
-local CACTUS_HEIGHT = 1.5  -- Giảm mặc định xuống 1.5
-local CACTUS_LENGTH = 3.0  -- Giảm mặc định xuống 3
+local CACTUS_WIDTH  = 5.0  
+local CACTUS_HEIGHT = 2.0  
+local CACTUS_LENGTH = 5.0  
 local HITBOX_SIZE = Vector3.new(CACTUS_WIDTH, CACTUS_HEIGHT, CACTUS_LENGTH)
 local HITBOX_TRANSPARERECY = 1 
 local HITBOX_COLOR = Color3.fromRGB(0, 255, 255) 
 local NO_FRICTION_PHYSICS = PhysicalProperties.new(0.7, 0, 1, 0, 1)
 
+-- ==========================================
+-- CẤU HÌNH CHO TÍNH NĂNG CREATE HITBOX
+-- ==========================================
+local customHitboxEnabled = false
+local customHitboxWidth = 5
+local customHitboxHeight = 5
+local customHitboxLength = 5
+local customHitboxColor = Color3.fromRGB(255, 0, 0)
+local customHitboxTransparency = 0.5
+local CustomHitboxFolder = Instance.new("Folder")
+CustomHitboxFolder.Name = "ArgoHub_CustomHitboxes"
+CustomHitboxFolder.Parent = workspace
+
 local currentEmotes = {} 
 local selectEmotes = {}  
 local emoteEnabled = {}
-local uiInputBoxesOwned = {} 
-local uiInputBoxesTarget = {}
 
 for i = 1, 12 do 
     currentEmotes[i] = ""
@@ -293,34 +303,56 @@ local function setupLegacyCharacter(character)
     checkBhopState()
 end
 
-local function createHitboxAtPosition(position)
-    if not customHitboxEnabled or not position then return end
+local function createHitboxOnTop(cactus)
+    if cactus:FindFirstChild("HasBhopHitbox") then return end
+    
+    local cframe, size
+    if cactus:IsA("Model") then
+        cframe, size = cactus:GetBoundingBox()
+    elseif cactus:IsA("BasePart") then
+        cframe, size = cactus.CFrame, cactus.Size
+    else
+        local primary = cactus:FindFirstChildWhichIsA("BasePart", true)
+        if primary then
+            cframe, size = primary.CFrame, primary.Size
+        else
+            return
+        end
+    end
+    
+    local spawnPosition = cframe.Position + Vector3.new(0, size.Y / 2, 0)
     
     local hitbox = Instance.new("Part")
     hitbox.Name = "BhopHitbox_Cactus"
     hitbox.Size = HITBOX_SIZE
-    hitbox.CFrame = CFrame.new(position + Vector3.new(0, HITBOX_SIZE.Y / 2, 0))
+    hitbox.CFrame = CFrame.new(spawnPosition + Vector3.new(0, CACTUS_HEIGHT / 2, 0))
     hitbox.Transparency = HITBOX_TRANSPARERECY
     hitbox.Color = HITBOX_COLOR
     hitbox.Material = Enum.Material.Neon
     hitbox.Anchored = true
     hitbox.CanCollide = true
     hitbox.CustomPhysicalProperties = NO_FRICTION_PHYSICS
-    hitbox.Parent = workspace
     
-    WindUI:Notify({ Title = "Hitbox Created", Content = "Done!", Type = "Success" })
+    local tag = Instance.new("BoolValue", cactus)
+    tag.Name = "HasBhopHitbox"
+    
+    hitbox.Parent = workspace
 end
 
-local function removeAllHitboxes()
-    for _, obj in ipairs(workspace:GetChildren()) do
-        if obj.Name == "BhopHitbox_Cactus" then
-            obj:Destroy()
+local function forceScanCactus()
+    local count = 0
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        local objName = string.lower(obj.Name)
+        if string.find(objName, "cactus1") or string.find(objName, "cactus2") then
+            if not obj:FindFirstChild("HasBhopHitbox") then
+                count = count + 1
+                task.spawn(function()
+                    createHitboxOnTop(obj)
+                end)
+            end
         end
     end
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        local tag = obj:FindFirstChild("HasBhopHitbox")
-        if tag then tag:Destroy() end
-    end
+    return count
 end
 
 local function getMatchingTables()
@@ -485,7 +517,6 @@ local function applyCosmetics()
         for _, c in ipairs(tempB:GetChildren()) do c.Parent = a end
         tempRoot:Destroy()
         isSwapped = true
-        WindUI:Notify({ Title = "Cosmetic", Content = "Done!!", Type = "Success" })
     end)
 end
 
@@ -506,7 +537,6 @@ local function resetCosmetics()
         end
         isSwapped = false
         cosmetic1, cosmetic2 = "", ""
-        WindUI:Notify({ Title = "Cosmetic", Content = "Reset Done!", Type = "Warning" })
     end)
 end
 
@@ -627,11 +657,8 @@ local Window = WindUI:CreateWindow({
     Folder = "MvmDih_configs",
     Icon = "solar:settings-bold",
     NewElements = true,
-    HideSearchBar = false,
     Theme = "Dark", 
-    Acrylic = false,
-    HidePanelBackground = false,
-    Size = UDim2.fromOffset(580, 490),
+    HideSearchBar = false,
     OpenButton = {
         Title = " Who see this is Gay/Les Furry Femboys! ",
         CornerRadius = UDim.new(0, 4),
@@ -644,21 +671,113 @@ local Window = WindUI:CreateWindow({
     },
     Topbar = {
         Height = 40,
-        ButtonsType = "Mac",
+        ButtonsType = "Default",
     },
 })
 
-WindUI.TransparencyValue = 0.7
+WindUI.TransparencyValue = 0.6
 Window:ToggleTransparency(true)
 Window:SetToggleKey(Enum.KeyCode.RightControl)
 
 local SectionMain = Window:Section({ Title = "fucking features (all is beta!)" })
 
-local TabMovement = SectionMain:Tab({ Title = "Movement Physics", Icon = "solar/running-round-bold", Border = true })
-local TabVisuals  = SectionMain:Tab({ Title = "Visuals", Icon = "solar/eye-bold", Border = true })
-local TabLegacy   = SectionMain:Tab({ Title = "Legacy", Icon = "solar/history-bold", Border = true })
-local TabCustomize = SectionMain:Tab({ Title = "Customize", Icon = "solar/palette-bold", Border = true })
-local TabSettings = SectionMain:Tab({ Title = "System Settings", Icon = "solar/tuning-bold", Border = true })
+local TabMovement = SectionMain:Tab({ Title = "Movement Physics", Icon = "solar/running-round-bold", Border = false })
+local TabLegacy   = SectionMain:Tab({ Title = "Legacy", Icon = "solar/history-bold", Border = false })
+local TabHitbox   = SectionMain:Tab({ Title = "Hitbox Creator", Icon = "solar/box-bold", Border = false })
+local TabVisuals  = SectionMain:Tab({ Title = "Visuals", Icon = "solar/eye-bold", Border = false })
+local TabSettings = SectionMain:Tab({ Title = "System Settings", Icon = "solar/tuning-bold", Border = false })
+
+TabHitbox:Section({ Title = "Mouse Target Hitbox Settings" })
+
+TabHitbox:Toggle({ 
+    Title = "Enable Custom Hitbox Creation", 
+    Value = false, 
+    Callback = function(state) 
+        customHitboxEnabled = state 
+    end 
+})
+
+TabHitbox:Button({
+    Title = "Clear All Created Hitboxes",
+    Color = Color3.fromHex("#5A5A5A"),
+    Justify = "Center",
+    Callback = function()
+        CustomHitboxFolder:ClearAllChildren()
+    end
+})
+
+TabHitbox:Space()
+TabHitbox:Section({ Title = "Hitbox Dimensions" })
+
+TabHitbox:Slider({ 
+    Title = "Hitbox Width", 
+    Step = 0.1, 
+    Value = { Min = 1, Max = 6, Default = 4 }, 
+    Callback = function(value) customHitboxWidth = value end 
+})
+
+TabHitbox:Slider({ 
+    Title = "Hitbox Height", 
+    Step = 0.1, 
+    Value = { Min = 1, Max = 6, Default = 4 }, 
+    Callback = function(value) customHitboxHeight = value end 
+})
+
+TabHitbox:Slider({ 
+    Title = "Hitbox Length", 
+    Step = 0.1, 
+    Value = { Min = 1, Max = 6, Default = 4 }, 
+    Callback = function(value) customHitboxLength = value end 
+})
+
+TabHitbox:Space()
+TabHitbox:Section({ Title = "Hitbox Styling" })
+
+TabHitbox:Colorpicker({ 
+    Title = "Select Hitbox Box Color", 
+    Default = Color3.fromRGB(255, 0, 0), 
+    Callback = function(color) customHitboxColor = color end 
+})
+
+TabHitbox:Slider({ 
+    Title = "Hitbox Transparency", 
+    Step = 0.05, 
+    Value = { Min = 0, Max = 1, Default = 0.5 }, 
+    Callback = function(value) customHitboxTransparency = value end 
+})
+
+SafeConnect(UserInputService.InputBegan, function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and customHitboxEnabled then
+        if Mouse.Target and Mouse.Hit then
+            local targetObj = Mouse.Target
+
+            if not targetObj:IsDescendantOf(CustomHitboxFolder) then
+                pcall(function()
+                     local exactClickPos = Mouse.Hit.Position
+                    
+                    local surfaceNormal = Vector3.FromNormalId(Mouse.TargetSurface)
+                    
+                    local spawnCFrame = CFrame.new(exactClickPos + (surfaceNormal * (customHitboxHeight / 2)))
+                    
+                    local newHitbox = Instance.new("Part")
+                    newHitbox.Name = "ArgoCreated_Hitbox"
+                    newHitbox.Size = Vector3.new(customHitboxWidth, customHitboxHeight, customHitboxLength)
+                    newHitbox.CFrame = spawnCFrame
+                    newHitbox.Transparency = customHitboxTransparency
+                    newHitbox.Color = customHitboxColor
+                    newHitbox.Material = Enum.Material.Neon
+                    newHitbox.Anchored = true
+                    newHitbox.CanCollide = true
+                    newHitbox.CustomPhysicalProperties = NO_FRICTION_PHYSICS
+                    
+                    newHitbox.Parent = CustomHitboxFolder
+                end)
+            end
+        end
+    end
+end)
 
 TabLegacy:Section({ Title = "Legacy Player Modification" })
 TabLegacy:Input({ Title = "Real Speed Multiplier", Placeholder = "Default: 1500", Callback = function(value) local n = tonumber(value) if n then RealSpeed = n end end })
@@ -666,13 +785,23 @@ TabLegacy:Input({ Title = "Legacy Jump Height", Placeholder = "Default: 3", Call
 TabLegacy:Input({ Title = "Air Strafe Acceleration", Placeholder = "Default: 187", Callback = function(value) local n = tonumber(value) if n then AirStrafeAcceleration = n end end })
 
 TabLegacy:Section({ Title = "Legacy Bhop" })
-TabLegacy:Toggle({ Title = "Enable Bhop", Value = false, Callback = function(state) autoJumpEnabled = state checkBhopState() reapplyModifications() end })
+TabLegacy:Toggle({ Title = "Enable Bhop (Auto Jump)", Value = false, Callback = function(state) autoJumpEnabled = state checkBhopState() reapplyModifications() end })
 TabLegacy:Toggle({ Title = "Bhop Key Holding (Space / Mobile Jump)", Value = false, Callback = function(state) bhopHoldFeature = state if not state then bhopHoldActive = false checkBhopState() reapplyModifications() end end })
 TabLegacy:Dropdown({ Title = "Bhop Mode", Values = {"No Acceleration", "Ground Acceleration", "Acceleration"}, Value = "Acceleration", Callback = function(value) accelerationMethod = value reapplyModifications() end })
 TabLegacy:Input({ Title = "Bhop Acceleration (Negative Value Only)", Placeholder = "-0.5", Callback = function(value) local n = tonumber(value) if n then groundFriction = n reapplyModifications() end end })
 
 TabLegacy:Section({ Title = "Legacy Auto Acceleration" })
 TabLegacy:Toggle({ Title = "Enable Auto Acceleration (Legit)", Value = false, Callback = function(state) AutoAccelerationEnabled = state reapplyModifications() end })
+
+TabLegacy:Section({ Title = "Legacy Exploits & Utilities" })
+TabLegacy:Button({
+    Title = "Scan & Apply Cactus Hitbox",
+    Color = Color3.fromHex("#5A5A5A"),
+    Justify = "Center",
+    Callback = function()
+        forceScanCactus()
+    end
+})
 
 TabMovement:Section({ Title = "Player Modification Settings" })
 TabMovement:Input({ Title = "Player Speed Modifier", Placeholder = "Default: 1500", Callback = function(value) local val = tonumber(value) if val then currentSettings.Speed = val; applyMovementSettings() end end })
@@ -698,9 +827,27 @@ TabMovement:Toggle({ Title = "Enable Turnbind Modifier", Value = false, Callback
 TabMovement:Input({ Title = "Left Turn Key Binding", Placeholder = "A", Callback = function(v) turnbindLeftKey = v:upper() end })
 TabMovement:Input({ Title = "Right Turn Key Binding", Placeholder = "D", Callback = function(v) turnbindRightKey = v:upper() end })
 
-TabVisuals:Section({ Title = "Avatar Body Enhancements (R6 Models)" })
-TabVisuals:Toggle({ Title = "Enable Headless Head Mode", Value = false, Callback = function(state) headlessEnabled = state if state and LocalPlayer.Character then applyHeadless(LocalPlayer.Character) end end })
-TabVisuals:Toggle({ Title = "Enable Korblox Right Leg Mode", Value = false, Callback = function(state) korbloxEnabled = state if state and LocalPlayer.Character then applyKorblox(LocalPlayer.Character) end end })
+TabVisuals:Section({ Title = "Avatar Body Enhancements" })
+TabVisuals:Toggle({ 
+    Title = "Enable Headless Head ", 
+    Value = false, 
+    Callback = function(state) 
+        headlessEnabled = state 
+        if state and LocalPlayer.Character then 
+            applyHeadless(LocalPlayer.Character) 
+        end 
+    end 
+})
+TabVisuals:Toggle({ 
+    Title = "Enable Korblox Right Leg", 
+    Value = false, 
+    Callback = function(state) 
+        korbloxEnabled = state 
+        if state and LocalPlayer.Character then 
+            applyKorblox(LocalPlayer.Character) 
+        end 
+    end 
+})
 
 TabVisuals:Space()
 
@@ -708,88 +855,66 @@ TabVisuals:Section({ Title = "Client Cosmetic Replacer" })
 local InputCos1 = TabVisuals:Input({ Title = "Current Owned Item Name", Placeholder = "Owned item...", Callback = function(v) cosmetic1 = v end })
 local InputCos2 = TabVisuals:Input({ Title = "Target Swap Item Name", Placeholder = "Desired item...", Callback = function(v) cosmetic2 = v end })
 TabVisuals:Button({ Title = "Execute Cosmetic Replacement (Apply)", Color = Color3.fromHex("#5A5A5A"), Justify = "Center", Callback = function() applyCosmetics() end })
-TabVisuals:Button({ Title = "Reset Cosmetic & Restore Original ", Color = Color3.fromHex("#5A5A5A"), Justify = "Center", Callback = function() resetCosmetics() pcall(function() InputCos1:SetValue("") end) pcall(function() InputCos2:SetValue("") end) end })
+TabVisuals:Button({ 
+    Title = "Reset Cosmetic & Restore Original ", 
+    Color = Color3.fromHex("#5A5A5A"), 
+    Justify = "Center", 
+    Callback = function() 
+        resetCosmetics() 
+        pcall(function() InputCos1:SetValue("") end)
+        pcall(function() InputCos2:SetValue("") end)
+    end  
+})
 
-TabVisuals:Section({ Title = "Aura Color Properties" })
+TabVisuals:Section({ Title = "Aura Color " })
 TabVisuals:Colorpicker({ Title = "Pick Custom Aura / Cosmetic Color", Default = Color3.fromRGB(255, 0, 0), Callback = function(color) auraColor = color applyAuraColorEffect() end })
 TabVisuals:Button({ Title = "Force Update Color Now", Justify = "Center", Callback = function() applyAuraColorEffect() end })
 TabVisuals:Toggle({ Title = "Auto Apply Colors On Respawn", Value = false, Callback = function(state) autoApplyAuraColor = state end })
 
 TabVisuals:Space()
 
-TabVisuals:Section({ Title = "12 Owned Emotes" })
-for i = 1, 12 do uiInputBoxesOwned[i] = TabVisuals:Input({ Title = string.format("Slot %02d [Owned Emote]", i), Placeholder = "name emote...", Callback = function(v) currentEmotes[i] = v:gsub("%s+", "") end }) end
-
-TabVisuals:Space()
-
-TabVisuals:Section({ Title = "12 Target Emotes" })
-for i = 1, 12 do uiInputBoxesTarget[i] = TabVisuals:Input({ Title = string.format("Slot %02d [Swap Target]", i), Placeholder = "name emote to swap...", Callback = function(v) selectEmotes[i] = v:gsub("%s+", "") end }) end
+TabVisuals:Section({ Title = "12 Owned Emotes & 12 Target Emotes" })
+for i = 1, 12 do
+    TabVisuals:Input({
+        Title = string.format("Slot %02d [Gốc Bạn Có]", i), Placeholder = "name emote...",
+        Callback = function(v) currentEmotes[i] = v:gsub("%s+", "") end
+    })
+    TabVisuals:Input({
+        Title = string.format("Slot %02d [Muốn Tráo Sang]", i), Placeholder = "name emote swap...",
+        Callback = function(v) selectEmotes[i] = v:gsub("%s+", "") end
+    })
+end
 
 TabVisuals:Space()
 
 TabVisuals:Section({ Title = "Emote Remap Action Buttons" })
-TabVisuals:Button({ Title = "Apply Emotes Remap System", Color = Color3.fromHex("#5A5A5A"), Justify = "Center", Callback = function() local activeCount = 0 for i = 1, 12 do if currentEmotes[i] ~= "" and selectEmotes[i] ~= "" then emoteEnabled[i] = true activeCount = activeCount + 1 else emoteEnabled[i] = false end end WindUI:Notify({ Title = "Emote System", Content = "Done " .. tostring(activeCount) .. " Slots!", Type = "Success" }) end })
-TabVisuals:Button({ Title = "Reset All Emote Slots to Default", Color = Color3.fromHex("#5A5A5A"), Justify = "Center", Callback = function() for i = 1, 12 do currentEmotes[i] = "" selectEmotes[i] = "" emoteEnabled[i] = false pcall(function() uiInputBoxesOwned[i]:SetValue("") end) pcall(function() uiInputBoxesTarget[i]:SetValue("") end) end WindUI:Notify({ Title = "Emote System", Content = "Reset Done", Type = "Warning" }) end })
-
-TabCustomize:Section({ Title = "Hitbox Settings" })
-
-TabCustomize:Toggle({
-    Title = "Enable Click-to-Create Hitbox",
-    Value = false,
-    Callback = function(state)
-        customHitboxEnabled = state
-        if not state then
-            WindUI:Notify({ Title = "Hitbox Mode", Content = "OFF!", Type = "Warning" })
-        else
-            WindUI:Notify({ Title = "Hitbox Mode", Content = "ON", Type = "Success" })
+TabVisuals:Button({
+    Title = "Apply Emotes Remap System",
+    Color = Color3.fromHex("#5A5A5A"), 
+    Justify = "Center",
+    Callback = function()
+        for i = 1, 12 do
+            if currentEmotes[i] ~= "" and selectEmotes[i] ~= "" then
+                emoteEnabled[i] = true
+            else
+                emoteEnabled[i] = false
+            end
         end
     end
 })
 
-TabCustomize:Button({
-    Title = "Clear All Hitboxes",
-    Color = Color3.fromHex("#5A5A5A"),
+TabVisuals:Button({
+    Title = "Reset All Emote Slots to Default",
+    Color = Color3.fromHex("#5A5A5A"), 
     Justify = "Center",
     Callback = function()
-        removeAllHitboxes()
-        WindUI:Notify({ Title = "Hitbox Cleaned", Content = "DONE!", Type = "Success" })
+        for i = 1, 12 do
+            currentEmotes[i] = ""
+            selectEmotes[i] = ""
+            emoteEnabled[i] = false
+        end
     end
 })
-
-TabCustomize:Space()
-
-TabCustomize:Slider({ Title = "Hitbox Width", Step = 0.2, Value = { Min = 0.5, Max = 6, Default = 3.0 }, Callback = function(value) CACTUS_WIDTH = value HITBOX_SIZE = Vector3.new(CACTUS_WIDTH, CACTUS_HEIGHT, CACTUS_LENGTH) end })
-TabCustomize:Slider({ Title = "Hitbox Height", Step = 0.2, Value = { Min = 0.5, Max = 6, Default = 1.5 }, Callback = function(value) CACTUS_HEIGHT = value HITBOX_SIZE = Vector3.new(CACTUS_WIDTH, CACTUS_HEIGHT, CACTUS_LENGTH) end })
-TabCustomize:Slider({ Title = "Hitbox Length", Step = 0.2, Value = { Min = 0.5, Max = 6, Default = 3.0 }, Callback = function(value) CACTUS_LENGTH = value HITBOX_SIZE = Vector3.new(CACTUS_WIDTH, CACTUS_HEIGHT, CACTUS_LENGTH) end })
-TabCustomize:Colorpicker({ Title = "Hitbox Color", Default = Color3.fromRGB(0, 255, 255), Callback = function(color) HITBOX_COLOR = color end })
-TabCustomize:Slider({ Title = "Hitbox Transparency", Step = 0.05, Value = { Min = 0, Max = 1, Default = 1.0 }, Callback = function(value) HITBOX_TRANSPARERECY = value end })
-
-TabCustomize:Space()
-TabCustomize:Section({ Title = "Utility Scripts" })
-TabCustomize:Button({ Title = "Script Avatar Change ", Color = Color3.fromHex("#8A2BE2"), Justify = "Center", Callback = function() WindUI:Notify({ Title = "Avatar Changer", Content = "Đang tải script...", Type = "Success" }) local favuSuccess, favuError = pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/darkdexv2/universalavatarchanger/main/avatarchanger"))() end) if not favuSuccess then WindUI:Notify({ Title = "Avatar Changer Error", Content = "Lỗi khi chạy script: " .. tostring(favuError), Type = "Error" }) end end })
-
-TabSettings:Section({ Title = "Menu Interface Settings" })
-
-TabSettings:Toggle({
-    Title = "Menu Transparency",
-    Value = true,
-    Callback = function(state)
-        Window:ToggleTransparency(state)
-    end
-})
-
-TabSettings:Slider({
-    Title = "Transparency",
-    Step = 0.05,
-    Value = { Min = 0.1, Max = 1, Default = 0.7 },
-    Callback = function(value)
-        WindUI.TransparencyValue = value
-        Window:ToggleTransparency(false)
-        Window:ToggleTransparency(true)
-    end
-})
-
-TabSettings:Space()
 
 TabSettings:Section({ Title = "Windows KeyBind" })
 TabSettings:Keybind({ Title = "Global Menu Open/Close Shortcut", Value = "RightControl", Callback = function(key) local parsed = parseKeyCode(key) if parsed then pcall(function() Window:SetToggleKey(parsed) end) end end })
@@ -803,20 +928,37 @@ TabSettings:Button({
         getgenv().bhopHoldSystemEnabled = false
         getgenv().bhopHoldActive = false
         toggleAutoBounce(false)
-        removeAllHitboxes()
+        customHitboxEnabled = false
+        CustomHitboxFolder:Destroy()
         Window:Destroy()
     end,
 })
 
-SafeConnect(UserInputService.InputBegan, function(input, gameProcessed)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 and customHitboxEnabled then
-        if gameProcessed then return end
-        local mouse = LocalPlayer:GetMouse()
-        if mouse and mouse.Hit then
-            createHitboxAtPosition(mouse.Hit.Position)
+SafeConnect(RunService.RenderStepped, function() 
+    if getgenv().bhopHoldSystemEnabled and getgenv().bhopHoldActive then applyBhopFriction() end 
+end)
+
+SafeConnect(RunService.Heartbeat, function()
+    local isActive = getgenv().bhopHoldSystemEnabled and getgenv().bhopHoldActive
+    if isActive then
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hum and hrp and hum.Health > 0 then
+            local now = tick()
+            if isCharacterGrounded(char, hrp, hum) and (now - LastJump) > 0.15 then
+                LastJump = now 
+                pcall(function() 
+                    LocalPlayer.PlayerScripts.Events.temporary_events.JumpReact:Fire() 
+                    LocalPlayer.PlayerScripts.Events.temporary_events.EndJump:Fire() 
+                end)
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
         end
     end
+end)
 
+SafeConnect(UserInputService.InputBegan, function(input, gameProcessed)
     if gameProcessed then return end
     
     if input.KeyCode == Enum.KeyCode.Space then
@@ -876,30 +1018,6 @@ SafeConnect(UserInputService.InputEnded, function(input)
     
     if input.KeyCode == Enum.KeyCode[wallClimbKeybind] and wallClimbEnabled and wallClimbMode == "Hold" then
         stopWallHold()
-    end
-end)
-
-SafeConnect(RunService.RenderStepped, function() 
-    if getgenv().bhopHoldSystemEnabled and getgenv().bhopHoldActive then applyBhopFriction() end 
-end)
-
-SafeConnect(RunService.Heartbeat, function()
-    local isActive = getgenv().bhopHoldSystemEnabled and getgenv().bhopHoldActive
-    if isActive then
-        local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hum and hrp and hum.Health > 0 then
-            local now = tick()
-            if isCharacterGrounded(char, hrp, hum) and (now - LastJump) > 0.15 then
-                LastJump = now 
-                pcall(function() 
-                    LocalPlayer.PlayerScripts.Events.temporary_events.JumpReact:Fire() 
-                    LocalPlayer.PlayerScripts.Events.temporary_events.EndJump:Fire() 
-                end)
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            end
-        end
     end
 end)
 
