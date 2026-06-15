@@ -9,13 +9,23 @@ local Mouse = LocalPlayer:GetMouse()
 
 if not cloneref then getgenv().cloneref = function(instance) return instance end end
 
-local WindUI
-local success = pcall(function()
-    WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
-end)
-if not success or not WindUI then
-    WindUI = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/Footagesus/WindUI@main/dist/main.lua"))()
-end
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+Library.ForceCheckbox = false
+Library.ShowToggleFrameInKeybinds = true
+
+local Window = Library:CreateWindow({
+    Title = "Movement-Dih",
+    Footer = "version : beta_V1",
+    NotifySide = "Right",
+    ShowCustomCursor = false,
+})
 
 local currentSettings = {
     Speed = 1500,
@@ -63,9 +73,6 @@ local HITBOX_TRANSPARERECY = 1
 local HITBOX_COLOR = Color3.fromRGB(0, 255, 255) 
 local NO_FRICTION_PHYSICS = PhysicalProperties.new(0.7, 0, 1, 0, 1)
 
--- ==========================================
--- CẤU HÌNH CHO TÍNH NĂNG CREATE HITBOX
--- ==========================================
 local customHitboxEnabled = false
 local customHitboxWidth = 5
 local customHitboxHeight = 5
@@ -652,113 +659,156 @@ if PassCharacterInfo and EmoteRemote then
     end)
 end
 
-local Window = WindUI:CreateWindow({
-    Title = "Movement Dih - BetaV1",
-    Folder = "MvmDih_configs",
-    Icon = "solar:settings-bold",
-    NewElements = true,
-    Theme = "Dark", 
-    HideSearchBar = false,
-    OpenButton = {
-        Title = " Who see this is Gay/Les Furry Femboys! ",
-        CornerRadius = UDim.new(0, 4),
-        StrokeThickness = 1,
-        Enabled = true,
-        Draggable = true,
-        OnlyMobile = false,
-        Scale = 0.5,
-        Color = ColorSequence.new(Color3.fromHex("#5A5A5A")),
-    },
-    Topbar = {
-        Height = 40,
-        ButtonsType = "Default",
-    },
+local Tabs = {
+    Movement = Window:AddTab("Movement Physics", "user"),
+    Legacy   = Window:AddTab("Legacy", "history"),
+    Hitbox   = Window:AddTab("Hitbox Creator", "box"),
+    Visuals  = Window:AddTab("Visuals", "eye"),
+    Settings = Window:AddTab("System Settings", "settings")
+}
+
+local MoveGroup1 = Tabs.Movement:AddLeftGroupbox("Player Modification Settings")
+
+MoveGroup1:AddInput("PlayerSpeedModifier", {
+    Default = "1500", Text = "Player Speed Modifier", Placeholder = "Default: 1500", Numeric = true,
+    Callback = function(value) local val = tonumber(value) if val then currentSettings.Speed = val; applyMovementSettings() end end
+})
+MoveGroup1:AddInput("PlayerJumpHeightPower", {
+    Default = "3.5", Text = "Player Jump Height Power", Placeholder = "Default: 3.5", Numeric = true,
+    Callback = function(value) if tonumber(value) then currentSettings.JumpPowerValue = tonumber(value) end end
+})
+MoveGroup1:AddInput("PlayerJumpCapMultiplier", {
+    Default = "1", Text = "Player Jump Cap Multiplier", Placeholder = "Default: 1", Numeric = true,
+    Callback = function(value) local val = tonumber(value) if val then currentSettings.JumpCap = val; applyMovementSettings() end end
+})
+MoveGroup1:AddInput("AirStrafeAcceleration", {
+    Default = "187", Text = "Air Strafe Acceleration", Placeholder = "Default: 187", Numeric = true,
+    Callback = function(value) local val = tonumber(value) if val then currentSettings.AirStrafeAcceleration = val; applyMovementSettings() end end
 })
 
-WindUI.TransparencyValue = 0.6
-Window:ToggleTransparency(true)
-Window:SetToggleKey(Enum.KeyCode.RightControl)
-
-local SectionMain = Window:Section({ Title = "fucking features (all is beta!)" })
-
-local TabMovement = SectionMain:Tab({ Title = "Movement Physics", Icon = "solar/running-round-bold", Border = false })
-local TabLegacy   = SectionMain:Tab({ Title = "Legacy", Icon = "solar/history-bold", Border = false })
-local TabHitbox   = SectionMain:Tab({ Title = "Hitbox Creator", Icon = "solar/box-bold", Border = false })
-local TabVisuals  = SectionMain:Tab({ Title = "Visuals", Icon = "solar/eye-bold", Border = false })
-local TabSettings = SectionMain:Tab({ Title = "System Settings", Icon = "solar/tuning-bold", Border = false })
-
-TabHitbox:Section({ Title = "Mouse Target Hitbox Settings" })
-
-TabHitbox:Toggle({ 
-    Title = "Enable Custom Hitbox Creation", 
-    Value = false, 
-    Callback = function(state) 
-        customHitboxEnabled = state 
-    end 
+local MoveGroup2 = Tabs.Movement:AddLeftGroupbox("Bhop")
+MoveGroup2:AddToggle("EnableBhopSystem", {
+    Text = "Enable Bhop System (Hold Space)", Default = false,
+    Callback = function(state) getgenv().bhopHoldSystemEnabled = state if not state then getgenv().bhopHoldActive = false end applyBhopFriction(not state) end
 })
 
-TabHitbox:Button({
-    Title = "Clear All Created Hitboxes",
-    Color = Color3.fromHex("#5A5A5A"),
-    Justify = "Center",
-    Callback = function()
-        CustomHitboxFolder:ClearAllChildren()
-    end
+local MoveGroup3 = Tabs.Movement:AddRightGroupbox("Wall Cling Modifier")
+MoveGroup3:AddToggle("EnableWallClingFunction", {
+    Text = "Enable Wall Cling Function", Default = false,
+    Callback = function(state) wallClimbEnabled = state if not state then stopWallHold() end end
+})
+MoveGroup3:AddDropdown("ActivationTriggerMode", {
+    Values = { "Hold", "Toggle" }, Default = "Hold", Text = "Activation Trigger Mode",
+    Callback = function(value) wallClimbMode = value stopWallHold() end
+})
+MoveGroup3:AddLabel("Wall Activation KeyBind"):AddKeyPicker("WallClimbKeybindPicker", {
+    Default = "H", SyncToggleState = false, Mode = "Toggle", Text = "Wall Activation Key",
+    ChangedCallback = function(key) wallClimbKeybind = key.Name end
 })
 
-TabHitbox:Space()
-TabHitbox:Section({ Title = "Hitbox Dimensions" })
-
-TabHitbox:Slider({ 
-    Title = "Hitbox Width", 
-    Step = 0.1, 
-    Value = { Min = 1, Max = 6, Default = 4 }, 
-    Callback = function(value) customHitboxWidth = value end 
+local MoveGroup4 = Tabs.Movement:AddRightGroupbox("Auto Bounce Velocity")
+MoveGroup4:AddToggle("EnableAutoBounceLoop", {
+    Text = "Enable Auto Bounce Loop", Default = false,
+    Callback = function(state) toggleAutoBounce(state) end
+})
+MoveGroup4:AddLabel("Auto Bounce Switch Key"):AddKeyPicker("AutoBounceKeybindPicker", {
+    Default = "B", SyncToggleState = false, Mode = "Toggle", Text = "Auto Bounce Switch Key",
+    ChangedCallback = function(key) autoBounceKeybind = key.Name end
+})
+MoveGroup4:AddSlider("BounceForceVelocity", {
+    Text = "Bounce Force Velocity", Min = 10, Max = 150, Default = 50, Rounding = 0,
+    Callback = function(value) bouncePowerValue = value end
 })
 
-TabHitbox:Slider({ 
-    Title = "Hitbox Height", 
-    Step = 0.1, 
-    Value = { Min = 1, Max = 6, Default = 4 }, 
-    Callback = function(value) customHitboxHeight = value end 
+local MoveGroup5 = Tabs.Movement:AddRightGroupbox("Turnbind Engineering")
+MoveGroup5:AddToggle("EnableTurnbindModifier", {
+    Text = "Enable Turnbind Modifier", Default = false,
+    Callback = function(state) turnbindEnabled = state end
+})
+MoveGroup5:AddInput("LeftTurnKeyBinding", {
+    Default = "A", Text = "Left Turn Key Binding", Placeholder = "A",
+    Callback = function(v) turnbindLeftKey = v:upper() end
+})
+MoveGroup5:AddInput("RightTurnKeyBinding", {
+    Default = "D", Text = "Right Turn Key Binding", Placeholder = "D",
+    Callback = function(v) turnbindRightKey = v:upper() end
 })
 
-TabHitbox:Slider({ 
-    Title = "Hitbox Length", 
-    Step = 0.1, 
-    Value = { Min = 1, Max = 6, Default = 4 }, 
-    Callback = function(value) customHitboxLength = value end 
+local LegacyGroup1 = Tabs.Legacy:AddLeftGroupbox("Legacy Player Modification")
+LegacyGroup1:AddInput("RealSpeedMultiplier", {
+    Default = "1500", Text = "Real Speed Multiplier", Placeholder = "Default: 1500", Numeric = true,
+    Callback = function(value) local n = tonumber(value) if n then RealSpeed = n end end
+})
+LegacyGroup1:AddInput("LegacyJumpHeight", {
+    Default = "3", Text = "Legacy Jump Height", Placeholder = "Default: 3", Numeric = true,
+    Callback = function(value) local n = tonumber(value) if n then JumpHeight = n local char = LocalPlayer.Character local hum = char and char:FindFirstChildOfClass("Humanoid") if hum then hum.JumpHeight = n end end end
+})
+LegacyGroup1:AddInput("AirStrafeAccelerationLegacy", {
+    Default = "187", Text = "Air Strafe Acceleration", Placeholder = "Default: 187", Numeric = true,
+    Callback = function(value) local n = tonumber(value) if n then AirStrafeAcceleration = n end end
 })
 
-TabHitbox:Space()
-TabHitbox:Section({ Title = "Hitbox Styling" })
-
-TabHitbox:Colorpicker({ 
-    Title = "Select Hitbox Box Color", 
-    Default = Color3.fromRGB(255, 0, 0), 
-    Callback = function(color) customHitboxColor = color end 
+local LegacyGroup2 = Tabs.Legacy:AddLeftGroupbox("Legacy Bhop")
+LegacyGroup2:AddToggle("EnableBhopAutoJump", {
+    Text = "Enable Bhop (Auto Jump)", Default = false,
+    Callback = function(state) autoJumpEnabled = state checkBhopState() reapplyModifications() end
+})
+LegacyGroup2:AddToggle("BhopKeyHoldingSpace", {
+    Text = "Bhop Key Holding (Space / Mobile Jump)", Default = false,
+    Callback = function(state) bhopHoldFeature = state if not state then bhopHoldActive = false checkBhopState() reapplyModifications() end end
+})
+LegacyGroup2:AddDropdown("BhopModeDropdown", {
+    Values = {"No Acceleration", "Ground Acceleration", "Acceleration"}, Default = "Acceleration", Text = "Bhop Mode",
+    Callback = function(value) accelerationMethod = value reapplyModifications() end
+})
+LegacyGroup2:AddInput("BhopAccelerationInput", {
+    Default = "-0.5", Text = "Bhop Acceleration (Negative Value Only)", Placeholder = "-0.5",
+    Callback = function(value) local n = tonumber(value) if n then groundFriction = n reapplyModifications() end end
 })
 
-TabHitbox:Slider({ 
-    Title = "Hitbox Transparency", 
-    Step = 0.05, 
-    Value = { Min = 0, Max = 1, Default = 0.5 }, 
-    Callback = function(value) customHitboxTransparency = value end 
+local LegacyGroup3 = Tabs.Legacy:AddRightGroupbox("Legacy Auto Acceleration")
+LegacyGroup3:AddToggle("EnableAutoAccelerationLegit", {
+    Text = "Enable Auto Acceleration (Legit)", Default = false,
+    Callback = function(state) AutoAccelerationEnabled = state reapplyModifications() end
 })
+
+local LegacyGroup4 = Tabs.Legacy:AddRightGroupbox("Legacy Exploits & Utilities")
+LegacyGroup4:AddButton({
+    Text = "Scan & Apply Cactus Hitbox", DoubleClick = false,
+    Func = function() forceScanCactus() end
+})
+
+local HitboxGroup1 = Tabs.Hitbox:AddLeftGroupbox("Mouse Target Hitbox Settings")
+HitboxGroup1:AddToggle("EnableCustomHitboxCreation", {
+    Text = "Enable Custom Hitbox Creation", Default = false,
+    Callback = function(state) customHitboxEnabled = state end
+})
+HitboxGroup1:AddButton({
+    Text = "Clear All Created Hitboxes", DoubleClick = false,
+    Func = function() CustomHitboxFolder:ClearAllChildren() end
+})
+
+local HitboxGroup2 = Tabs.Hitbox:AddLeftGroupbox("Hitbox Dimensions")
+HitboxGroup2:AddSlider("HitboxWidth", { Text = "Hitbox Width", Min = 1, Max = 6, Default = 4, Rounding = 1, Callback = function(value) customHitboxWidth = value end })
+HitboxGroup2:AddSlider("HitboxHeight", { Text = "Hitbox Height", Min = 1, Max = 6, Default = 4, Rounding = 1, Callback = function(value) customHitboxHeight = value end })
+HitboxGroup2:AddSlider("HitboxLength", { Text = "Hitbox Length", Min = 1, Max = 6, Default = 4, Rounding = 1, Callback = function(value) customHitboxLength = value end })
+
+local HitboxGroup3 = Tabs.Hitbox:AddRightGroupbox("Hitbox Styling")
+HitboxGroup3:AddLabel("Select Hitbox Box Color"):AddColorPicker("HitboxColorPicker", {
+    Default = Color3.fromRGB(255, 0, 0), Title = "Select Hitbox Box Color",
+    Callback = function(color) customHitboxColor = color end
+})
+HitboxGroup3:AddSlider("HitboxTransparency", { Text = "Hitbox Transparency", Min = 0, Max = 1, Default = 0.5, Rounding = 2, Callback = function(value) customHitboxTransparency = value end })
 
 SafeConnect(UserInputService.InputBegan, function(input, gameProcessed)
     if gameProcessed then return end
-    
     if input.UserInputType == Enum.UserInputType.MouseButton1 and customHitboxEnabled then
         if Mouse.Target and Mouse.Hit then
             local targetObj = Mouse.Target
-
             if not targetObj:IsDescendantOf(CustomHitboxFolder) then
                 pcall(function()
-                     local exactClickPos = Mouse.Hit.Position
-                    
+                    local exactClickPos = Mouse.Hit.Position
                     local surfaceNormal = Vector3.FromNormalId(Mouse.TargetSurface)
-                    
                     local spawnCFrame = CFrame.new(exactClickPos + (surfaceNormal * (customHitboxHeight / 2)))
                     
                     local newHitbox = Instance.new("Part")
@@ -771,7 +821,6 @@ SafeConnect(UserInputService.InputBegan, function(input, gameProcessed)
                     newHitbox.Anchored = true
                     newHitbox.CanCollide = true
                     newHitbox.CustomPhysicalProperties = NO_FRICTION_PHYSICS
-                    
                     newHitbox.Parent = CustomHitboxFolder
                 end)
             end
@@ -779,148 +828,79 @@ SafeConnect(UserInputService.InputBegan, function(input, gameProcessed)
     end
 end)
 
-TabLegacy:Section({ Title = "Legacy Player Modification" })
-TabLegacy:Input({ Title = "Real Speed Multiplier", Placeholder = "Default: 1500", Callback = function(value) local n = tonumber(value) if n then RealSpeed = n end end })
-TabLegacy:Input({ Title = "Legacy Jump Height", Placeholder = "Default: 3", Callback = function(value) local n = tonumber(value) if n then JumpHeight = n local char = LocalPlayer.Character local hum = char and char:FindFirstChildOfClass("Humanoid") if hum then hum.JumpHeight = n end end end })
-TabLegacy:Input({ Title = "Air Strafe Acceleration", Placeholder = "Default: 187", Callback = function(value) local n = tonumber(value) if n then AirStrafeAcceleration = n end end })
+local VisualGroup1 = Tabs.Visuals:AddLeftGroupbox("Avatar Body Enhancements")
+VisualGroup1:AddToggle("EnableHeadlessHead", {
+    Text = "Enable Headless Head ", Default = false,
+    Callback = function(state) headlessEnabled = state if state and LocalPlayer.Character then applyHeadless(LocalPlayer.Character) end end
+})
+VisualGroup1:AddToggle("EnableKorbloxRightLeg", {
+    Text = "Enable Korblox Right Leg", Default = false,
+    Callback = function(state) korbloxEnabled = state if state and LocalPlayer.Character then applyKorblox(LocalPlayer.Character) end end
+})
 
-TabLegacy:Section({ Title = "Legacy Bhop" })
-TabLegacy:Toggle({ Title = "Enable Bhop (Auto Jump)", Value = false, Callback = function(state) autoJumpEnabled = state checkBhopState() reapplyModifications() end })
-TabLegacy:Toggle({ Title = "Bhop Key Holding (Space / Mobile Jump)", Value = false, Callback = function(state) bhopHoldFeature = state if not state then bhopHoldActive = false checkBhopState() reapplyModifications() end end })
-TabLegacy:Dropdown({ Title = "Bhop Mode", Values = {"No Acceleration", "Ground Acceleration", "Acceleration"}, Value = "Acceleration", Callback = function(value) accelerationMethod = value reapplyModifications() end })
-TabLegacy:Input({ Title = "Bhop Acceleration (Negative Value Only)", Placeholder = "-0.5", Callback = function(value) local n = tonumber(value) if n then groundFriction = n reapplyModifications() end end })
-
-TabLegacy:Section({ Title = "Legacy Auto Acceleration" })
-TabLegacy:Toggle({ Title = "Enable Auto Acceleration (Legit)", Value = false, Callback = function(state) AutoAccelerationEnabled = state reapplyModifications() end })
-
-TabLegacy:Section({ Title = "Legacy Exploits & Utilities" })
-TabLegacy:Button({
-    Title = "Scan & Apply Cactus Hitbox",
-    Color = Color3.fromHex("#5A5A5A"),
-    Justify = "Center",
-    Callback = function()
-        forceScanCactus()
+local VisualGroup2 = Tabs.Visuals:AddLeftGroupbox("Client Cosmetic Replacer")
+VisualGroup2:AddInput("CurrentOwnedItemName", { Default = "", Text = "Current Owned Item Name", Placeholder = "Owned item...", Callback = function(v) cosmetic1 = v end })
+VisualGroup2:AddInput("TargetSwapItemName", { Default = "", Text = "Target Swap Item Name", Placeholder = "Desired item...", Callback = function(v) cosmetic2 = v end })
+VisualGroup2:AddButton({ Text = "Execute Cosmetic Replacement (Apply)", Func = function() applyCosmetics() end })
+VisualGroup2:AddButton({
+    Text = "Reset Cosmetic & Restore Original ",
+    Func = function()
+        resetCosmetics()
+        pcall(function() Options.CurrentOwnedItemName:SetValue("") end)
+        pcall(function() Options.TargetSwapItemName:SetValue("") end)
     end
 })
 
-TabMovement:Section({ Title = "Player Modification Settings" })
-TabMovement:Input({ Title = "Player Speed Modifier", Placeholder = "Default: 1500", Callback = function(value) local val = tonumber(value) if val then currentSettings.Speed = val; applyMovementSettings() end end })
-TabMovement:Input({ Title = "Player Jump Height Power", Placeholder = "Default: 3.5", Callback = function(value) if tonumber(value) then currentSettings.JumpPowerValue = tonumber(value) end end })
-TabMovement:Input({ Title = "Player Jump Cap Multiplier", Placeholder = "Default: 1", Callback = function(value) local val = tonumber(value) if val then currentSettings.JumpCap = val; applyMovementSettings() end end })
-TabMovement:Input({ Title = "Air Strafe Acceleration", Placeholder = "Default: 187", Callback = function(value) local val = tonumber(value) if val then currentSettings.AirStrafeAcceleration = val; applyMovementSettings() end end })
-
-TabMovement:Section({ Title = "Bhop" })
-TabMovement:Toggle({ Title = "Enable Bhop System (Hold Space)", Value = false, Callback = function(state) getgenv().bhopHoldSystemEnabled = state if not state then getgenv().bhopHoldActive = false end applyBhopFriction(not state) end })
-
-TabMovement:Section({ Title = "Wall Cling Modifier" })
-TabMovement:Toggle({ Title = "Enable Wall Cling Function", Value = false, Callback = function(state) wallClimbEnabled = state if not state then stopWallHold() end end })
-TabMovement:Dropdown({ Title = "Activation Trigger Mode", Values = { "Hold", "Toggle" }, Value = "Hold", Callback = function(option) wallClimbMode = option stopWallHold() end })
-TabMovement:Keybind({ Title = "Wall Activation KeyBind", Value = "H", Callback = function(key) local parsed = parseKeyCode(key) if parsed then wallClimbKeybind = parsed.Name end end })
-
-TabMovement:Section({ Title = "Auto Bounce Velocity" })
-local BounceToggle = TabMovement:Toggle({ Title = "Enable Auto Bounce Loop", Value = false, Callback = function(state) toggleAutoBounce(state) end })
-TabMovement:Keybind({ Title = "Auto Bounce Switch Key", Value = "B", Callback = function(key) local parsed = parseKeyCode(key) if parsed then autoBounceKeybind = parsed.Name end end })
-TabMovement:Slider({ Title = "Bounce Force Velocity", Step = 1, Value = { Min = 10, Max = 150, Default = 50 }, Callback = function(value) bouncePowerValue = value end })
-
-TabMovement:Section({ Title = "Turnbind Engineering" })
-TabMovement:Toggle({ Title = "Enable Turnbind Modifier", Value = false, Callback = function(state) turnbindEnabled = state end })
-TabMovement:Input({ Title = "Left Turn Key Binding", Placeholder = "A", Callback = function(v) turnbindLeftKey = v:upper() end })
-TabMovement:Input({ Title = "Right Turn Key Binding", Placeholder = "D", Callback = function(v) turnbindRightKey = v:upper() end })
-
-TabVisuals:Section({ Title = "Avatar Body Enhancements" })
-TabVisuals:Toggle({ 
-    Title = "Enable Headless Head ", 
-    Value = false, 
-    Callback = function(state) 
-        headlessEnabled = state 
-        if state and LocalPlayer.Character then 
-            applyHeadless(LocalPlayer.Character) 
-        end 
-    end 
+local VisualGroup3 = Tabs.Visuals:AddRightGroupbox("Aura Color ")
+VisualGroup3:AddLabel("Pick Custom Aura Color"):AddColorPicker("CustomAuraColorPicker", {
+    Default = Color3.fromRGB(255, 0, 0), Title = "Pick Custom Aura / Cosmetic Color",
+    Callback = function(color) auraColor = color applyAuraColorEffect() end
 })
-TabVisuals:Toggle({ 
-    Title = "Enable Korblox Right Leg", 
-    Value = false, 
-    Callback = function(state) 
-        korbloxEnabled = state 
-        if state and LocalPlayer.Character then 
-            applyKorblox(LocalPlayer.Character) 
-        end 
-    end 
-})
+VisualGroup3:AddButton({ Text = "Force Update Color Now", Func = function() applyAuraColorEffect() end })
+VisualGroup3:AddToggle("AutoApplyColorsOnRespawn", { Text = "Auto Apply Colors On Respawn", Default = false, Callback = function(state) autoApplyAuraColor = state end })
 
-TabVisuals:Space()
-
-TabVisuals:Section({ Title = "Client Cosmetic Replacer" })
-local InputCos1 = TabVisuals:Input({ Title = "Current Owned Item Name", Placeholder = "Owned item...", Callback = function(v) cosmetic1 = v end })
-local InputCos2 = TabVisuals:Input({ Title = "Target Swap Item Name", Placeholder = "Desired item...", Callback = function(v) cosmetic2 = v end })
-TabVisuals:Button({ Title = "Execute Cosmetic Replacement (Apply)", Color = Color3.fromHex("#5A5A5A"), Justify = "Center", Callback = function() applyCosmetics() end })
-TabVisuals:Button({ 
-    Title = "Reset Cosmetic & Restore Original ", 
-    Color = Color3.fromHex("#5A5A5A"), 
-    Justify = "Center", 
-    Callback = function() 
-        resetCosmetics() 
-        pcall(function() InputCos1:SetValue("") end)
-        pcall(function() InputCos2:SetValue("") end)
-    end  
-})
-
-TabVisuals:Section({ Title = "Aura Color " })
-TabVisuals:Colorpicker({ Title = "Pick Custom Aura / Cosmetic Color", Default = Color3.fromRGB(255, 0, 0), Callback = function(color) auraColor = color applyAuraColorEffect() end })
-TabVisuals:Button({ Title = "Force Update Color Now", Justify = "Center", Callback = function() applyAuraColorEffect() end })
-TabVisuals:Toggle({ Title = "Auto Apply Colors On Respawn", Value = false, Callback = function(state) autoApplyAuraColor = state end })
-
-TabVisuals:Space()
-
-TabVisuals:Section({ Title = "12 Owned Emotes & 12 Target Emotes" })
+local VisualGroup4 = Tabs.Visuals:AddRightGroupbox("12 Owned Emotes & 12 Target Emotes")
 for i = 1, 12 do
-    TabVisuals:Input({
-        Title = string.format("Slot %02d [Gốc Bạn Có]", i), Placeholder = "name emote...",
+    VisualGroup4:AddInput("EmoteSlotGoc_"..i, {
+        Default = "", Text = string.format("Slot %02d [own]", i), Placeholder = "name emote...",
         Callback = function(v) currentEmotes[i] = v:gsub("%s+", "") end
     })
-    TabVisuals:Input({
-        Title = string.format("Slot %02d [Muốn Tráo Sang]", i), Placeholder = "name emote swap...",
+    VisualGroup4:AddInput("EmoteSlotTrao_"..i, {
+        Default = "", Text = string.format("Slot %02d [want to swap]", i), Placeholder = "name emote swap...",
         Callback = function(v) selectEmotes[i] = v:gsub("%s+", "") end
     })
 end
 
-TabVisuals:Space()
-
-TabVisuals:Section({ Title = "Emote Remap Action Buttons" })
-TabVisuals:Button({
-    Title = "Apply Emotes Remap System",
-    Color = Color3.fromHex("#5A5A5A"), 
-    Justify = "Center",
-    Callback = function()
+local VisualGroup5 = Tabs.Visuals:AddRightGroupbox("Emote Remap Action Buttons")
+VisualGroup5:AddButton({
+    Text = "Apply Emotes Remap System",
+    Func = function()
         for i = 1, 12 do
-            if currentEmotes[i] ~= "" and selectEmotes[i] ~= "" then
-                emoteEnabled[i] = true
-            else
-                emoteEnabled[i] = false
-            end
+            if currentEmotes[i] ~= "" and selectEmotes[i] ~= "" then emoteEnabled[i] = true else emoteEnabled[i] = false end
+        end
+    end
+})
+VisualGroup5:AddButton({
+    Text = "Reset All Emote Slots to Default",
+    Func = function()
+        for i = 1, 12 do
+            currentEmotes[i] = "" selectEmotes[i] = "" emoteEnabled[i] = false
+            pcall(function() Options["EmoteSlotGoc_"..i]:SetValue("") end)
+            pcall(function() Options["EmoteSlotTrao_"..i]:SetValue("") end)
         end
     end
 })
 
-TabVisuals:Button({
-    Title = "Reset All Emote Slots to Default",
-    Color = Color3.fromHex("#5A5A5A"), 
-    Justify = "Center",
-    Callback = function()
-        for i = 1, 12 do
-            currentEmotes[i] = ""
-            selectEmotes[i] = ""
-            emoteEnabled[i] = false
-        end
-    end
-})
+local SettingsGroup = Tabs.Settings:AddLeftGroupbox("Menu Settings")
 
-TabSettings:Section({ Title = "Windows KeyBind" })
-TabSettings:Keybind({ Title = "Global Menu Open/Close Shortcut", Value = "RightControl", Callback = function(key) local parsed = parseKeyCode(key) if parsed then pcall(function() Window:SetToggleKey(parsed) end) end end })
-TabSettings:Button({
-    Title = "Terminate Script & Clear Cache", Color = Color3.fromHex("#5A5A5A"), Justify = "Center",
-    Callback = function()
+SettingsGroup:AddLabel("Global Menu Open/Close Shortcut"):AddKeyPicker("MenuKeybind", {
+    Default = "RightControl", NoUI = true, Text = "Menu keybind"
+})
+Library.ToggleKeybind = Options.MenuKeybind
+
+SettingsGroup:AddButton({
+    Text = "Terminate Script & Clear Cache",
+    Func = function()
         for _, conn in ipairs(RunningConnections) do if conn then conn:Disconnect() end end
         if bounceConnection then bounceConnection:Disconnect() end
         if _G.WallClimbConnection then _G.WallClimbConnection:Disconnect() end
@@ -930,9 +910,21 @@ TabSettings:Button({
         toggleAutoBounce(false)
         customHitboxEnabled = false
         CustomHitboxFolder:Destroy()
-        Window:Destroy()
-    end,
+        Library:Unload()
+    end
 })
+
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+
+ThemeManager:SetFolder("ArgoHubConfigs")
+SaveManager:SetFolder("ArgoHubConfigs/MvmDih")
+
+SaveManager:BuildConfigSection(Tabs.Settings)
+ThemeManager:ApplyToTab(Tabs.Settings)
+SaveManager:LoadAutoloadConfig()
 
 SafeConnect(RunService.RenderStepped, function() 
     if getgenv().bhopHoldSystemEnabled and getgenv().bhopHoldActive then applyBhopFriction() end 
@@ -986,7 +978,7 @@ SafeConnect(UserInputService.InputBegan, function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode[autoBounceKeybind] then 
         local newState = not autoBounceEnabled
         toggleAutoBounce(newState) 
-        if BounceToggle then BounceToggle:SetValue(newState) end 
+        pcall(function() Toggles.EnableAutoBounceLoop:SetValue(newState) end)
     end
     
     if input.KeyCode == Enum.KeyCode[wallClimbKeybind] and wallClimbEnabled and wallClimbMode == "Toggle" then
@@ -1053,4 +1045,8 @@ end
 if LocalPlayer.Character then task.spawn(setupCharacter, LocalPlayer.Character) end
 SafeConnect(LocalPlayer.CharacterAdded, setupCharacter)
 
-WindUI:Notify({ Title = "Movement Dih", Content = "Done!, please follow my tiktok account : @thatoneargo", Duration = 5 })
+Library:Notify({
+    Title = "Movement Dih",
+    Description = "Done!, please follow my tiktok account : @thatoneargo",
+    Time = 5
+})
