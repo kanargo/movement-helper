@@ -22,9 +22,9 @@ Library.ShowToggleFrameInKeybinds = true
 
 local Window = Library:CreateWindow({
     Title = "Movement-Dih",
-    Footer = "version : beta_V1",
+    Footer = "version : beta_V2",
     NotifySide = "Right",
-    ShowCustomCursor = false,
+    ShowCustomCursor = True,
 })
 
 local currentSettings = {
