@@ -35,9 +35,9 @@ local currentSettings = {
 }
 
 getgenv().bhopHoldSystemEnabled = false
-getgenv().bhopHoldActive = false
-getgenv().bhopMode = "Acceleration"
-getgenv().bhopAccelValue = -0.5
+getgenv().bhopHoldActive        = false
+getgenv().bhopMode              = "Acceleration"
+getgenv().bhopAccelValue        = -0.5
 
 local frictionTables = {}
 local CurrentJumpCount = 0
@@ -115,12 +115,15 @@ for i = 1, 6 do
     feOriginalEmotes[i] = LocalPlayer:GetAttribute("Emote" .. i) or ""
 end
 
-local feHookInstalled = false
-local feBlockRemote = false
-local fePendingEmotes = {}
-local feValidEmotes = {}
-local feEmoteInputs = {}
-
+local feHookInstalled   = false
+local feBlockRemote     = false
+local fePendingEmotes   = {}
+local feValidEmotes     = {}
+local feEmoteInputs     = {}
+local feEmoteSpeedConn    = nil 
+local feEmotingConn       = nil
+local feEmoteSpeedCache   = {}
+local feEmoteRunnerActive = false 
 local function feScanValidEmotes()
     local emotes = {}
     local itemsFolder = ReplicatedStorage:FindFirstChild("Items")
@@ -148,6 +151,114 @@ local function feGetTagData()
     local char = LocalPlayer.Character
     if char then return char:GetAttribute("Tag") end
     return nil
+end
+
+local function feGetEmoteSpeedMult(emoteName)
+    if not feIsValidEmote(emoteName) then return 1 end
+    if feEmoteSpeedCache[emoteName] then return feEmoteSpeedCache[emoteName] end
+    local itemsFolder = ReplicatedStorage:FindFirstChild("Items")
+    if not itemsFolder then return 1 end
+    local emotesFolder = itemsFolder:FindFirstChild("Emotes")
+    if not emotesFolder then return 1 end
+    local emoteModule = emotesFolder:FindFirstChild(emoteName)
+    if not emoteModule or not emoteModule:IsA("ModuleScript") then return 1 end
+    local ok, emoteData = pcall(require, emoteModule)
+    if not ok or not emoteData then return 1 end
+    local speedMult = emoteData.SpeedMult
+        or (emoteData.EmoteInfo and emoteData.EmoteInfo.SpeedMult)
+        or 1
+    feEmoteSpeedCache[emoteName] = speedMult
+    return speedMult
+end
+
+local function feSetupEmoteSpeedChange(apply)
+    if feEmoteSpeedConn then
+        feEmoteSpeedConn:Disconnect()
+        feEmoteSpeedConn = nil
+    end
+    local gamePlayers = Workspace:FindFirstChild("Game") and Workspace.Game:FindFirstChild("Players")
+    if not gamePlayers then return end
+    local localModel = gamePlayers:FindFirstChild(LocalPlayer.Name)
+    if not localModel then return end
+
+    local function getSpeedFolder()
+        local sc = localModel:FindFirstChild("StatChanges")
+        return sc and sc:FindFirstChild("Speed")
+    end
+    local function applySpeedValue(emoteName)
+        local sp = getSpeedFolder()
+        if not sp then return end
+        local mult = feGetEmoteSpeedMult(emoteName)
+        local esv = sp:FindFirstChild("EmoteSpeed")
+        if apply then
+            if esv then
+                esv.Value = mult
+            else
+                esv = Instance.new("NumberValue")
+                esv.Name = "EmoteSpeed"
+                esv.Value = mult
+                esv.Parent = sp
+            end
+        else
+            if esv then esv:Destroy() end
+        end
+    end
+    local function removeSpeedValue()
+        local sp = getSpeedFolder()
+        if not sp then return end
+        local esv = sp:FindFirstChild("EmoteSpeed")
+        if esv then esv:Destroy() end
+    end
+
+    if localModel:GetAttribute("Emoting") == true then
+        for i = 1, 6 do
+            local cur = LocalPlayer:GetAttribute("Emote" .. i)
+            if cur and cur ~= "" and feIsValidEmote(cur) then
+                if apply then applySpeedValue(cur) else removeSpeedValue() end
+                break
+            end
+        end
+    else
+        removeSpeedValue()
+    end
+
+    if apply then
+        feEmoteSpeedConn = localModel:GetAttributeChangedSignal("Emoting"):Connect(function()
+            if localModel:GetAttribute("Emoting") == true then
+                for i = 1, 6 do
+                    local cur = LocalPlayer:GetAttribute("Emote" .. i)
+                    if cur and cur ~= "" and feIsValidEmote(cur) then
+                        applySpeedValue(cur)
+                        break
+                    end
+                end
+            else
+                removeSpeedValue()
+            end
+        end)
+    end
+end
+
+local function feSetupTPCameraOnEmoting(apply)
+    if feEmotingConn then feEmotingConn:Disconnect(); feEmotingConn = nil end
+    if not apply then return end
+    local gamePlayers = Workspace:FindFirstChild("Game") and Workspace.Game:FindFirstChild("Players")
+    if not gamePlayers then return end
+    local localModel = gamePlayers:FindFirstChild(LocalPlayer.Name)
+    if not localModel then return end
+    feEmotingConn = localModel:GetAttributeChangedSignal("Emoting"):Connect(function()
+        if localModel:GetAttribute("Emoting") == true then
+            local char = LocalPlayer.Character
+            if char then
+                local clientEvent = char:FindFirstChild("Client")
+                if clientEvent then
+                    pcall(function()
+                        firesignal(clientEvent.OnClientEvent, "TPCamera", { Zoom = 10 })
+                    end)
+                end
+            end
+        end
+    end)
 end
 
 local function feTriggerTagEmote(slot)
@@ -187,8 +298,6 @@ local function feInstallHook()
                         if feBlockRemote then
                             feTriggerTagEmote(tonumber(num))
                             return
-                        else
-                            task.defer(function() feTriggerTagEmote(tonumber(num)) end)
                         end
                     end
                 end
@@ -210,12 +319,18 @@ local function feApplyAllEmotes()
         end
         fePendingEmotes = {}
         feInstallHook()
+        if not feEmoteRunnerActive then
+            feSetupEmoteSpeedChange(true)
+            feSetupTPCameraOnEmoting(true)
+        end
     end)
 end
 
 local function feResetAllEmotes()
     feBlockRemote = false
     pcall(function()
+        feSetupEmoteSpeedChange(false)
+        feSetupTPCameraOnEmoting(false)
         fePendingEmotes = {}
         for i = 1, 6 do
             LocalPlayer:SetAttribute("Emote" .. i, feOriginalEmotes[i])
@@ -522,7 +637,7 @@ local function setupLegacyCharacter(character)
         if new == Enum.HumanoidStateType.Landed then jumps = 0 end
     end)
     SafeConnect(UserInputService.JumpRequest, function()
-        if jumps < jumpcap and tick() - jumpTick > 0.05 then
+        if jumpcap > 1 and jumps >= 1 and jumps < jumpcap and tick() - jumpTick > 0.05 then
             jumpTick = tick()
             jumps = jumps + 1
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
@@ -573,6 +688,21 @@ local function forceScanCactus()
     for _, obj in ipairs(workspace:GetDescendants()) do
         local objName = string.lower(obj.Name)
         if string.find(objName, "cactus1") or string.find(objName, "cactus2") then
+            if not obj:FindFirstChild("HasBhopHitbox") then
+                count = count + 1
+                task.spawn(function()
+                    createHitboxOnTop(obj)
+                end)
+            end
+        end
+    end
+    return count
+end
+
+local function forceScanCarPole()
+    local count = 0
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "CarPole" then
             if not obj:FindFirstChild("HasBhopHitbox") then
                 count = count + 1
                 task.spawn(function()
@@ -938,6 +1068,77 @@ MoveGroup6:AddSlider("DownDashSpeedSlider", {
     Callback = function(value) downDashSpeed = value end
 })
 
+local MoveGroup7 = Tabs.Movement:AddLeftGroupbox("Emote Utilities")
+MoveGroup7:AddButton({
+    Text = "Nonmovable Emote", DoubleClick = false,
+    Func = function()
+        local EmotesFolder = ReplicatedStorage:WaitForChild("Items"):WaitForChild("Emotes")
+        for _, emoteModule in pairs(EmotesFolder:GetChildren()) do
+            if emoteModule:IsA("ModuleScript") then
+                local ok, emoteData = pcall(require, emoteModule)
+                if ok and emoteData and emoteData.EmoteInfo and emoteData.EmoteInfo.SpeedMult == 0 then
+                    emoteData.EmoteInfo.SpeedMult = 0.7
+                end
+            end
+        end
+    end
+})
+
+local edgeBoostEnabled = false
+local edgeBoostPower   = 100
+local edgeBoostConn    = nil
+local edgeVMin         = 1.0
+
+local function applyEdgeBoost()
+    local char = LocalPlayer.Character
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.Health <= 0 then return end
+    if hrp.AssemblyLinearVelocity.Y >= -edgeVMin then return end
+
+    local touching = hrp:GetTouchingParts()
+    if #touching == 0 then return end
+
+    local skipWords = {"bounce","boost","launch","jump","pad","ramp","platform"}
+    local isBounce  = false
+    for _, pt in pairs(touching) do
+        local n = string.lower(pt.Name)
+        for _, w in pairs(skipWords) do
+            if n:find(w) then isBounce = true break end
+        end
+        if not isBounce and pt.Parent then
+            local pn = string.lower(pt.Parent.Name)
+            for _, w in pairs(skipWords) do
+                if pn:find(w) then isBounce = true break end
+            end
+        end
+        if isBounce then break end
+    end
+
+    if not isBounce then
+        local vel = hrp.AssemblyLinearVelocity
+        hrp.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z) + Vector3.new(0, edgeBoostPower, 0)
+    end
+end
+
+local MoveGroup8 = Tabs.Movement:AddRightGroupbox("Edge Boost")
+MoveGroup8:AddToggle("EnableEdgeBoost", {
+    Text = "Enable Edge Boost", Default = false,
+    Callback = function(state)
+        edgeBoostEnabled = state
+        if state then
+            if edgeBoostConn then edgeBoostConn:Disconnect() end
+            edgeBoostConn = RunService.Stepped:Connect(applyEdgeBoost)
+        else
+            if edgeBoostConn then edgeBoostConn:Disconnect(); edgeBoostConn = nil end
+        end
+    end
+})
+MoveGroup8:AddSlider("EdgeBoostPower", {
+    Text = "Edge Power", Min = 10, Max = 500, Default = 100, Rounding = 0,
+    Callback = function(value) edgeBoostPower = value end
+})
+
 local MoveGroup3 = Tabs.Movement:AddRightGroupbox("Wall Cling Modifier")
 MoveGroup3:AddToggle("EnableWallClingFunction", {
     Text = "Enable Wall Cling Function", Default = false,
@@ -1023,6 +1224,10 @@ LegacyGroup4:AddButton({
     Text = "Scan & Apply Cactus Hitbox", DoubleClick = false,
     Func = function() forceScanCactus() end
 })
+LegacyGroup4:AddButton({
+    Text = "Scan & Apply CarPole Hitbox", DoubleClick = false,
+    Func = function() forceScanCarPole() end
+})
 
 local fastTurnConnection = nil
 local fastTurnActive = false
@@ -1057,6 +1262,16 @@ LegacyGroup5:AddButton({
     Func = function() runFastTurn() end
 })
 
+SafeConnect(LocalPlayer.CharacterAdded, function()
+    task.wait(1)
+    if not feEmoteRunnerActive then
+        pcall(function()
+            feSetupEmoteSpeedChange(true)
+            feSetupTPCameraOnEmoting(true)
+        end)
+    end
+end)
+
 local LegacyGroupFE = Tabs.Legacy:AddLeftGroupbox("FE Change Emote")
 for i = 1, 6 do
     local currentVal = LocalPlayer:GetAttribute("Emote" .. i) or ""
@@ -1081,7 +1296,15 @@ LegacyGroupFE:AddToggle("EmoteRunner", {
     Text = "Emote Runner",
     Default = false,
     Callback = function(state)
-        feBlockRemote = state
+        feEmoteRunnerActive = state
+        if state then
+            feSetupEmoteSpeedChange(false)
+            feSetupTPCameraOnEmoting(false)
+        else
+            feSetupEmoteSpeedChange(true)
+            feSetupTPCameraOnEmoting(true)
+            feInstallHook()
+        end
     end
 })
 
@@ -1234,6 +1457,9 @@ SettingsGroup:AddButton({
         if bounceConnection then bounceConnection:Disconnect() end
         if _G.WallClimbConnection then _G.WallClimbConnection:Disconnect() end
         if bhopConnection then bhopConnection:Disconnect() end
+        if feEmoteSpeedConn then feEmoteSpeedConn:Disconnect() end
+        if feEmotingConn then feEmotingConn:Disconnect() end
+        if edgeBoostConn then edgeBoostConn:Disconnect() end
         getgenv().bhopHoldSystemEnabled = false
         getgenv().bhopHoldActive = false
         toggleAutoBounce(false)
@@ -1319,7 +1545,6 @@ SafeConnect(RunService.Heartbeat, function()
                     )
                 end
             else
-
                 if downDashCurrentSpeed > 0.5 then
                     downDashCurrentSpeed = downDashCurrentSpeed * 0.85
                     local camLook = camera.CFrame.LookVector
