@@ -1006,6 +1006,7 @@ Tabs = {
     Hitbox   = Window:AddTab("Hitbox Creator", "box"),
     Visuals  = Window:AddTab("Visuals", "eye"),
     Lighting = Window:AddTab("Adjust Lighting", "sun"),
+    FFlags   = Window:AddTab("FFlags Injector", "syringe"),
     Settings = Window:AddTab("System Settings", "settings")
 }
 MoveGroup1 = Tabs.Movement:AddLeftGroupbox("Player Modification Settings")
@@ -1473,6 +1474,252 @@ LightGroup3:AddButton({
     Text = "Reset Sky",
     Func = function() resetSky() end
 })
+local HttpService = game:GetService("HttpService")
+local FFlagStoragePath = "FFlagsInjector/FFlags.json"
+
+local FFlagHandler = {}
+
+function FFlagHandler:SetFFlag(flag, value)
+    if type(flag) ~= "string" or flag:gsub(" ", ""):len() == 0 then
+        return false, "InvalidFlagName"
+    end
+    local stripped = flag
+        :gsub("^DFInt", ""):gsub("^DFFlag", ""):gsub("^FFlag", "")
+        :gsub("^FInt", ""):gsub("^DFString", ""):gsub("^FString", "")
+    local strValue
+    if type(value) == "boolean" then
+        strValue = value and "True" or "False"
+    else
+        strValue = tostring(value)
+    end
+    local success, method = false, "Unknown"
+    local ok = pcall(setfflag, stripped, strValue)
+    if ok then success = true; method = "NativeStripped"
+    else
+        local ok2 = pcall(setfflag, flag, strValue)
+        if ok2 then success = true; method = "NativeFull"
+        else
+            local ok3 = pcall(function()
+                if settings() and settings().FFlags then
+                    settings().FFlags[flag] = strValue
+                end
+            end)
+            if ok3 then success = true; method = "Settings" end
+        end
+    end
+    if success then
+        pcall(function()
+            local raw = readfile(FFlagStoragePath)
+            local fflagfile = raw and HttpService:JSONDecode(raw) or {}
+            fflagfile[flag] = strValue
+            writefile(FFlagStoragePath, HttpService:JSONEncode(fflagfile))
+        end)
+        return true, method
+    end
+    return false, "InjectionFailed"
+end
+
+function FFlagHandler:GetFFlag(flag)
+    if type(flag) ~= "string" or flag:gsub(" ", ""):len() == 0 then
+        return nil, "InvalidFlagName"
+    end
+    local stripped = flag
+        :gsub("^DFInt", ""):gsub("^DFFlag", ""):gsub("^FFlag", "")
+        :gsub("^FInt", ""):gsub("^DFString", ""):gsub("^FString", "")
+    local ok, result = pcall(getfflag, stripped)
+    if ok and result ~= nil then return result, "NativeBare" end
+    local ok2, result2 = pcall(getfflag, flag)
+    if ok2 and result2 ~= nil then return result2, "NativeFull" end
+    local ok3, raw = pcall(readfile, FFlagStoragePath)
+    if ok3 and raw then
+        local ok4, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
+        if ok4 and decoded and decoded[flag] ~= nil then return decoded[flag], "Persisted" end
+    end
+    return nil, "FlagNotFound"
+end
+
+function FFlagHandler:BulkSet(flagsTable)
+    local results = { success = {}, failed = {}, total = 0 }
+    for flag, value in pairs(flagsTable) do
+        results.total = results.total + 1
+        local ok, msg = self:SetFFlag(flag, value)
+        if ok then
+            table.insert(results.success, { flag = flag, value = value, method = msg })
+        else
+            table.insert(results.failed, { flag = flag, error = msg })
+        end
+        task.wait(0.05)
+    end
+    return results
+end
+
+function FFlagHandler:ClearFlags()
+    pcall(function() writefile(FFlagStoragePath, "{}") end)
+    return true
+end
+
+function FFlagHandler:GetStats()
+    local stats = { totalInjected = 0 }
+    local ok, raw = pcall(readfile, FFlagStoragePath)
+    if ok and raw then
+        local decoded = HttpService:JSONDecode(raw)
+        for _ in pairs(decoded) do stats.totalInjected = stats.totalInjected + 1 end
+    end
+    return stats
+end
+
+local FFlagPresets = {
+    Performance = {
+        ["DFIntTaskSchedulerTargetFps"] = 0,
+        ["DFIntFrameRateCap"] = 0,
+        ["DFIntRenderShadowMapResolution"] = 256,
+        ["DFIntMaxTextureSize"] = 512,
+        ["DFFlagRenderClutterVoxel"] = false,
+        ["DFIntGraphicsQualityLevel"] = 1,
+    },
+    Graphics = {
+        ["DFIntGraphicsQualityLevel"] = 21,
+        ["DFIntAntiAliasingMode"] = 2,
+        ["DFIntRenderShadowMapResolution"] = 2048,
+        ["DFIntMaxTextureSize"] = 4096,
+        ["DFFlagEnableGraphicsModeAutoDetect"] = false,
+    },
+    Unlock = {
+        ["DFFlagDebugPausePhysicsOnError"] = false,
+        ["DFFlagCharacterAutoJump"] = false,
+        ["DFFlagAllowThirdPartySales"] = true,
+        ["DFFlagUseNewTeleportService"] = false,
+        ["DFFlagDisableTeleportService"] = false,
+        ["DFIntMaxPlayerMovementSpeed"] = 100,
+        ["DFIntMaxPlayerMovementAcceleration"] = 100,
+        ["DFIntJumpPower"] = 80,
+    },
+    FPSUnlock = {
+        ["DFIntTaskSchedulerTargetFps"] = 0,
+        ["DFIntFrameRateCap"] = 0,
+        ["DFIntRenderShadowMapResolution"] = 128,
+        ["DFIntMaxTextureSize"] = 256,
+        ["DFFlagRenderClutterVoxel"] = false,
+        ["DFIntGraphicsQualityLevel"] = 1,
+    },
+}
+
+local FFLeftGroup  = Tabs.FFlags:AddLeftGroupbox("Single Injection")
+local FFRightGroup = Tabs.FFlags:AddRightGroupbox("Bulk Injection & Presets")
+
+FFLeftGroup:AddInput("FlagNameInput", {
+    Text = "Flag Name",
+    Placeholder = "DFIntMaxPlayerMovementSpeed",
+    ClearTextOnFocus = true,
+})
+FFLeftGroup:AddInput("FlagValueInput", {
+    Text = "Flag Value",
+    Placeholder = "100 or true/false",
+    ClearTextOnFocus = true,
+})
+FFLeftGroup:AddDropdown("ValueTypeDropdown", {
+    Text = "Value Type",
+    Values = {"AutoDetect", "Number", "Boolean", "String"},
+    Default = 1,
+})
+FFLeftGroup:AddButton({
+    Text = "Inject Single Flag",
+    Func = function()
+        local flag      = Options.FlagNameInput.Value
+        local value     = Options.FlagValueInput.Value
+        local valueType = Options.ValueTypeDropdown.Value
+        if not flag or flag == "" then
+            Library:Notify({ Title = "Error", Description = "Please enter a flag name", Time = 3 })
+            return
+        end
+        local parsedValue
+        if valueType == "AutoDetect" then
+            if value:lower() == "true" then parsedValue = true
+            elseif value:lower() == "false" then parsedValue = false
+            elseif tonumber(value) then parsedValue = tonumber(value)
+            else parsedValue = value end
+        elseif valueType == "Number" then
+            parsedValue = tonumber(value) or 0
+        elseif valueType == "Boolean" then
+            parsedValue = value:lower() == "true"
+        else
+            parsedValue = value
+        end
+        local ok, msg = FFlagHandler:SetFFlag(flag, parsedValue)
+        if ok then
+            Library:Notify({ Title = "Injected", Description = flag .. " = " .. tostring(parsedValue), Time = 4 })
+        else
+            Library:Notify({ Title = "Failed", Description = "Could not inject: " .. flag, Time = 4 })
+        end
+    end,
+})
+
+FFRightGroup:AddLabel("Bulk Injection (JSON):")
+FFRightGroup:AddInput("BulkInput", {
+    Text = "JSON Data",
+    Placeholder = '{"DFIntMaxPlayerMovementSpeed": 100}',
+    ClearTextOnFocus = false,
+})
+FFRightGroup:AddButton({
+    Text = "Bulk Inject",
+    Func = function()
+        local json = Options.BulkInput.Value
+        if not json or json == "" then
+            Library:Notify({ Title = "Error", Description = "Please enter JSON data", Time = 3 })
+            return
+        end
+        local ok, flags = pcall(function() return HttpService:JSONDecode(json) end)
+        if not ok or type(flags) ~= "table" then
+            Library:Notify({ Title = "Invalid JSON", Description = "Check your JSON syntax", Time = 3 })
+            return
+        end
+        local results = FFlagHandler:BulkSet(flags)
+        Library:Notify({
+            Title = "Bulk Injection Done",
+            Description = "Success: " .. #results.success .. "  Failed: " .. #results.failed,
+            Time = 4,
+        })
+    end,
+})
+
+FFRightGroup:AddDivider()
+FFRightGroup:AddLabel("Presets")
+
+for presetName, flags in pairs(FFlagPresets) do
+    FFRightGroup:AddButton({
+        Text = presetName,
+        Func = function()
+            local results = FFlagHandler:BulkSet(flags)
+            Library:Notify({
+                Title = "Preset Applied",
+                Description = presetName .. ": " .. #results.success .. " flags injected",
+                Time = 3,
+            })
+        end,
+    })
+end
+
+FFRightGroup:AddDivider()
+
+FFRightGroup:AddButton({
+    Text = "Show Stats",
+    Func = function()
+        local stats = FFlagHandler:GetStats()
+        Library:Notify({
+            Title = "FFlags Stats",
+            Description = "Total injected: " .. stats.totalInjected .. " flags",
+            Time = 4,
+        })
+    end,
+})
+FFRightGroup:AddButton({
+    Text = "Clear All Flags",
+    Func = function()
+        FFlagHandler:ClearFlags()
+        Library:Notify({ Title = "Cleared", Description = "All flags cleared", Time = 3 })
+    end,
+})
+
 SettingsGroup = Tabs.Settings:AddLeftGroupbox("Menu Settings")
 SettingsGroup:AddLabel("Global Menu Open/Close Shortcut"):AddKeyPicker("MenuKeybind", { Default = "RightControl", NoUI = true, Text = "Menu keybind" })
 Library.ToggleKeybind = Options.MenuKeybind
