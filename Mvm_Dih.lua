@@ -18,7 +18,7 @@ Library.ForceCheckbox = false
 Library.ShowToggleFrameInKeybinds = true
 local Window = Library:CreateWindow({
     Title = "Movement-Dih",
-    Footer = "version : beta_V2",
+    Footer = "version : idk",
     NotifySide = "Right",
     ShowCustomCursor = True,
 })
@@ -384,7 +384,7 @@ local function clearCustomAura()
 end
 local wallClimbEnabled = false
 local wallClimbKeybind = "H"
-local wallClimbMode = "Hold"
+local wallClimbMode = "Auto"
 _G.IsHoldingH = false
 local currentLockedY = 0
 local RunningConnections = {}
@@ -704,51 +704,71 @@ function toggleAutoBounce(state)
         if bounceConnection then bounceConnection:Disconnect(); bounceConnection = nil end
     end
 end
+local psRayParams = RaycastParams.new()
+psRayParams.FilterType = Enum.RaycastFilterType.Exclude
+
 local function checkNearWall()
     local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = {char, Workspace:FindFirstChild("Game") and Workspace.Game:FindFirstChild("Effects")}
-    local directions = {hrp.CFrame.LookVector * 3.5, -hrp.CFrame.LookVector * 3.5, hrp.CFrame.RightVector * 3.5, -hrp.CFrame.RightVector * 3.5}
-    for _, dir in ipairs(directions) do
-        local result = Workspace:Raycast(hrp.Position, dir, raycastParams)
-        if result and result.Instance and result.Instance.CanCollide == true then return true end
+    psRayParams.FilterDescendantsInstances = {char, Workspace:FindFirstChild("Game") and Workspace.Game:FindFirstChild("Effects")}
+    local dirs = {hrp.CFrame.LookVector * 3.5, -hrp.CFrame.LookVector * 3.5, hrp.CFrame.RightVector * 3.5, -hrp.CFrame.RightVector * 3.5}
+    for _, dir in ipairs(dirs) do
+        local result = Workspace:Raycast(hrp.Position, dir, psRayParams)
+        if result and result.Instance and result.Instance.CanCollide then return true end
     end
     return false
 end
+
+local function isOnSlope()
+    -- Raycast straight down; if normal is not vertical, we're on a slope
+    local char = LocalPlayer.Character
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    psRayParams.FilterDescendantsInstances = {char}
+    local result = Workspace:Raycast(hrp.Position, Vector3.new(0, -4, 0), psRayParams)
+    if not result then return false end
+    local dot = result.Normal:Dot(Vector3.new(0, 1, 0))
+    return dot < 0.95  -- less than ~18° from vertical = slope
+end
+
 local function onWallClimbRenderStepped()
     local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if _G.IsHoldingH and hrp and hum then
-        if checkNearWall() then
-            local currentPos = hrp.Position
-            hrp.CFrame = CFrame.new(currentPos.X, currentLockedY, currentPos.Z) * hrp.CFrame.Rotation
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    if not (_G.IsHoldingH and hrp and hum) then return end
+    if checkNearWall() then
+        -- Don't lock Y if player is on a slope (prevents getting stuck)
+        if not isOnSlope() then
+            local pos = hrp.Position
+            hrp.CFrame = CFrame.new(pos.X, currentLockedY, pos.Z) * hrp.CFrame.Rotation
             hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 0, hrp.AssemblyLinearVelocity.Z)
-            hum:ChangeState(Enum.HumanoidStateType.Physics)
-        else
-            _G.IsHoldingH = false
-            if _G.WallClimbConnection then _G.WallClimbConnection:Disconnect(); _G.WallClimbConnection = nil end
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+        hum:ChangeState(Enum.HumanoidStateType.Physics)
+    else
+        _G.IsHoldingH = false
+        if _G.WallClimbConnection then _G.WallClimbConnection:Disconnect(); _G.WallClimbConnection = nil end
+        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+end
+
+local function startWallHold()
+    local char = LocalPlayer.Character
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp and checkNearWall() and not isOnSlope() then
+        _G.IsHoldingH    = true
+        currentLockedY   = hrp.Position.Y
+        if not _G.WallClimbConnection then
+            _G.WallClimbConnection = RunService.RenderStepped:Connect(onWallClimbRenderStepped)
         end
     end
 end
-local function startWallHold()
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp and checkNearWall() then
-        _G.IsHoldingH = true
-        currentLockedY = hrp.Position.Y
-        if not _G.WallClimbConnection then _G.WallClimbConnection = RunService.RenderStepped:Connect(onWallClimbRenderStepped) end
-    end
-end
+
 local function stopWallHold()
     _G.IsHoldingH = false
     if _G.WallClimbConnection then _G.WallClimbConnection:Disconnect(); _G.WallClimbConnection = nil end
     local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
     if hum then hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
 end
 local function applyCosmetics()
@@ -1002,12 +1022,12 @@ if PassCharacterInfo and EmoteRemote then
 end
 Tabs = {
     Movement = Window:AddTab("Movement Physics", "user"),
-    Legacy   = Window:AddTab("Legacy", "history"),
+    Legacy   = Window:AddTab("Legacy", "book"),
     Hitbox   = Window:AddTab("Hitbox Creator", "box"),
     Visuals  = Window:AddTab("Visuals", "eye"),
-    Lighting = Window:AddTab("Adjust Lighting", "sun"),
-    FFlags   = Window:AddTab("FFlags Injector", "syringe"),
-    Settings = Window:AddTab("System Settings", "settings")
+    Lighting  = Window:AddTab("Adjust Lighting", "sun"),
+    LagSwitch = Window:AddTab("Lag Switch", "wifi"),
+    Settings  = Window:AddTab("System Settings", "settings")
 }
 MoveGroup1 = Tabs.Movement:AddLeftGroupbox("Player Modification Settings")
 MoveGroup1:AddInput("PlayerSpeedModifier", { Default = "1500", Text = "Player Speed Modifier", Placeholder = "Default: 1500", Numeric = true, Callback = function(value) local val = tonumber(value) if val then currentSettings.Speed = val; applyMovementSettings() end end })
@@ -1019,7 +1039,30 @@ MoveGroup2:AddToggle("EnableBhopSystem", { Text = "Enable Bhop System (Hold Spac
 MoveGroup6 = Tabs.Movement:AddLeftGroupbox("Down Dash Overhaul")
 MoveGroup6:AddToggle("EnableDownDashOverhaul", { Text = "Enable Down Dash Overhaul", Default = false, Callback = function(state) downDashEnabled = state if not state then downDashActive = false; downDashPreActivated = false; downDashCurrentSpeed = 0 end end })
 MoveGroup6:AddSlider("DownDashSpeedSlider", { Text = "Down Dash Speed", Min = 20, Max = 300, Default = 185, Rounding = 0, Callback = function(value) downDashSpeed = value end })
+local is360HopEnabled = false
+local hop360Conn      = nil
+local HOP360_SPEED    = 0.70
+
+local function start360Hop()
+    if hop360Conn then hop360Conn:Disconnect() end
+    hop360Conn = RunService.Heartbeat:Connect(function(dt)
+        if not is360HopEnabled then return end
+        local char     = LocalPlayer.Character
+        local rootPart = char and char:FindFirstChild("HumanoidRootPart")
+        if not rootPart then return end
+        rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, 2 * math.pi / HOP360_SPEED * dt, 0)
+    end)
+end
+
 MoveGroup7 = Tabs.Movement:AddLeftGroupbox("Emote Utilities")
+MoveGroup7:AddToggle("Enable360HopEmote", {
+    Text = "360 Hop Emote", Default = false,
+    Callback = function(state)
+        is360HopEnabled = state
+        if state then start360Hop()
+        else if hop360Conn then hop360Conn:Disconnect(); hop360Conn = nil end end
+    end
+})
 MoveGroup7:AddButton({ Text = "Nonmovable Emote", DoubleClick = false, Func = function()
     local EmotesFolder = ReplicatedStorage:WaitForChild("Items"):WaitForChild("Emotes")
     for _, emoteModule in pairs(EmotesFolder:GetChildren()) do
@@ -1042,10 +1085,40 @@ MoveGroup8:AddToggle("EnableEdgeBoost", { Text = "Enable Edge Boost", Default = 
     end
 end })
 MoveGroup8:AddSlider("EdgeBoostPower", { Text = "Edge Power", Min = 10, Max = 500, Default = 100, Rounding = 0, Callback = function(value) edgeBoostPower = value end })
-MoveGroup3 = Tabs.Movement:AddRightGroupbox("Wall Cling Modifier")
-MoveGroup3:AddToggle("EnableWallClingFunction", { Text = "Enable Wall Cling Function", Default = false, Callback = function(state) wallClimbEnabled = state if not state then stopWallHold() end end })
-MoveGroup3:AddDropdown("ActivationTriggerMode", { Values = { "Hold", "Toggle" }, Default = "Hold", Text = "Activation Trigger Mode", Callback = function(value) wallClimbMode = value stopWallHold() end })
-MoveGroup3:AddLabel("Wall Activation KeyBind"):AddKeyPicker("WallClimbKeybindPicker", { Default = "H", SyncToggleState = false, Mode = "Toggle", Text = "Wall Activation Key", ChangedCallback = function(key) wallClimbKeybind = key.Name end })
+local pixelSurfAutoConn = nil
+
+local function startPixelSurfAuto()
+    if pixelSurfAutoConn then pixelSurfAutoConn:Disconnect() end
+    pixelSurfAutoConn = RunService.Heartbeat:Connect(function()
+        if not wallClimbEnabled then return end
+        local char = LocalPlayer.Character
+        local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        if checkNearWall() and not _G.IsHoldingH then
+            startWallHold()
+        elseif not checkNearWall() and _G.IsHoldingH then
+            stopWallHold()
+        end
+    end)
+end
+
+local function stopPixelSurfAuto()
+    if pixelSurfAutoConn then pixelSurfAutoConn:Disconnect(); pixelSurfAutoConn = nil end
+    stopWallHold()
+end
+
+MoveGroup3 = Tabs.Movement:AddRightGroupbox("Pixel Surf")
+MoveGroup3:AddToggle("EnableWallClingFunction", { Text = "Enable Pixel Surf", Default = false, Callback = function(state)
+    wallClimbEnabled = state
+    if not state then stopWallHold(); stopPixelSurfAuto() end
+end })
+MoveGroup3:AddDropdown("ActivationTriggerMode", { Values = { "Hold", "Toggle", "Auto" }, Default = "Hold", Text = "Activation Mode", Callback = function(value)
+    wallClimbMode = value
+    stopWallHold()
+    if pixelSurfAutoConn then pixelSurfAutoConn:Disconnect(); pixelSurfAutoConn = nil end
+    if value == "Auto" and wallClimbEnabled then startPixelSurfAuto() end
+end })
+MoveGroup3:AddLabel("Pixel Surf Key"):AddKeyPicker("WallClimbKeybindPicker", { Default = "H", SyncToggleState = false, Mode = "Toggle", Text = "Pixel Surf Key", ChangedCallback = function(key) wallClimbKeybind = key.Name end })
 MoveGroup4 = Tabs.Movement:AddRightGroupbox("Auto Bounce Velocity")
 MoveGroup4:AddToggle("EnableAutoBounceLoop", { Text = "Enable Auto Bounce Loop", Default = false, Callback = function(state) toggleAutoBounce(state) end })
 MoveGroup4:AddLabel("Auto Bounce Switch Key"):AddKeyPicker("AutoBounceKeybindPicker", { Default = "B", SyncToggleState = false, Mode = "Toggle", Text = "Auto Bounce Switch Key", ChangedCallback = function(key) autoBounceKeybind = key.Name end })
@@ -1242,7 +1315,7 @@ end)
 VisualGroup1 = Tabs.Visuals:AddLeftGroupbox("Avatar Body Enhancements")
 VisualGroup1:AddToggle("EnableHeadlessHead", { Text = "Enable Headless Head", Default = false, Callback = function(state) headlessEnabled = state if state and LocalPlayer.Character then applyHeadless(LocalPlayer.Character) end end })
 VisualGroup1:AddToggle("EnableKorbloxRightLeg", { Text = "Enable Korblox Right Leg", Default = false, Callback = function(state) korbloxEnabled = state if state and LocalPlayer.Character then applyKorblox(LocalPlayer.Character) end end })
-VisualGroup2 = Tabs.Visuals:AddLeftGroupbox("Client Cosmetic Replacer")
+VisualGroup2 = Tabs.Visuals:AddLeftGroupbox("Client Cosmetic Replacer (doesnt work)")
 VisualGroup2:AddInput("CurrentOwnedItemName", { Default = "", Text = "Current Owned Item Name", Placeholder = "Owned item...", Callback = function(v) cosmetic1 = v end })
 VisualGroup2:AddInput("TargetSwapItemName", { Default = "", Text = "Target Swap Item Name", Placeholder = "Desired item...", Callback = function(v) cosmetic2 = v end })
 VisualGroup2:AddButton({ Text = "Execute Cosmetic Replacement (Apply)", Func = function() applyCosmetics() end })
@@ -1253,7 +1326,7 @@ VisualGroup2:AddButton({ Text = "Reset Cosmetic & Restore Original", Func = func
 end })
 VisualGroup3 = Tabs.Visuals:AddRightGroupbox("Aura Color")
 VisualGroup3:AddLabel("Pick Custom Aura Color"):AddColorPicker("CustomAuraColorPicker", { Default = Color3.fromRGB(255, 0, 0), Title = "Pick Custom Aura / Cosmetic Color", Callback = function(color) auraColor = color applyAuraColorEffect() end })
-VisualGroup3:AddButton({ Text = "Force Update Color Now", Func = function() applyAuraColorEffect() end })
+
 VisualGroup3:AddToggle("AutoApplyColorsOnRespawn", { Text = "Auto Apply Colors On Respawn", Default = false, Callback = function(state) autoApplyAuraColor = state end })
 VisualGroupCC = Tabs.Visuals:AddLeftGroupbox("Custom Cosmetic")
 VisualGroupCC:AddInput("CustomAuraModelID", { Default = "", Text = "Model Asset ID", Placeholder = "e.g. 10953055906", Callback = function(v) customAuraModelID = v:gsub("%s+", "") end })
@@ -1264,9 +1337,9 @@ VisualGroupCC:AddButton({ Text = "Clear Aura", Func = function() clearCustomAura
 VisualGroupGC = Tabs.Visuals:AddLeftGroupbox("Global Color")
 VisualGroupGC:AddLabel("Pick Global Color"):AddColorPicker("GlobalColorPicker", { Default = Color3.fromRGB(255, 255, 255), Title = "Pick Global Color", Callback = function(color) globalColorValue = color end })
 VisualGroupGC:AddButton({ Text = "Apply Global Color", Func = function() applyGlobalColor(globalColorValue) end })
-VisualGroupGC:AddButton({ Text = "Random Color", Func = function() applyRandomColor() end })
+VisualGroupGC:AddButton({ TeVisualGroup3:AddButton({ Text = "Force Update Color Now", Func = function() applyAuraColorEffect() end })xt = "Random Color", Func = function() applyRandomColor() end })
 VisualGroupGC:AddButton({ Text = "Reset to Original Colors", Func = function() resetGlobalColor() end })
-VisualGroup4 = Tabs.Visuals:AddRightGroupbox("12 Owned Emotes & 12 Target Emotes")
+VisualGroup4 = Tabs.Visuals:AddRightGroupbox("Emote swap (doesnt work)")
 for i = 1, 12 do
     VisualGroup4:AddInput("EmoteSlotGoc_"..i, { Default = "", Text = string.format("Slot %02d [own]", i), Placeholder = "name emote...", Callback = function(v) currentEmotes[i] = v:gsub("%s+", "") end })
     VisualGroup4:AddInput("EmoteSlotTrao_"..i, { Default = "", Text = string.format("Slot %02d [want to swap]", i), Placeholder = "name emote swap...", Callback = function(v) selectEmotes[i] = v:gsub("%s+", "") end })
@@ -1474,252 +1547,6 @@ LightGroup3:AddButton({
     Text = "Reset Sky",
     Func = function() resetSky() end
 })
-local HttpService = game:GetService("HttpService")
-local FFlagStoragePath = "FFlagsInjector/FFlags.json"
-
-local FFlagHandler = {}
-
-function FFlagHandler:SetFFlag(flag, value)
-    if type(flag) ~= "string" or flag:gsub(" ", ""):len() == 0 then
-        return false, "InvalidFlagName"
-    end
-    local stripped = flag
-        :gsub("^DFInt", ""):gsub("^DFFlag", ""):gsub("^FFlag", "")
-        :gsub("^FInt", ""):gsub("^DFString", ""):gsub("^FString", "")
-    local strValue
-    if type(value) == "boolean" then
-        strValue = value and "True" or "False"
-    else
-        strValue = tostring(value)
-    end
-    local success, method = false, "Unknown"
-    local ok = pcall(setfflag, stripped, strValue)
-    if ok then success = true; method = "NativeStripped"
-    else
-        local ok2 = pcall(setfflag, flag, strValue)
-        if ok2 then success = true; method = "NativeFull"
-        else
-            local ok3 = pcall(function()
-                if settings() and settings().FFlags then
-                    settings().FFlags[flag] = strValue
-                end
-            end)
-            if ok3 then success = true; method = "Settings" end
-        end
-    end
-    if success then
-        pcall(function()
-            local raw = readfile(FFlagStoragePath)
-            local fflagfile = raw and HttpService:JSONDecode(raw) or {}
-            fflagfile[flag] = strValue
-            writefile(FFlagStoragePath, HttpService:JSONEncode(fflagfile))
-        end)
-        return true, method
-    end
-    return false, "InjectionFailed"
-end
-
-function FFlagHandler:GetFFlag(flag)
-    if type(flag) ~= "string" or flag:gsub(" ", ""):len() == 0 then
-        return nil, "InvalidFlagName"
-    end
-    local stripped = flag
-        :gsub("^DFInt", ""):gsub("^DFFlag", ""):gsub("^FFlag", "")
-        :gsub("^FInt", ""):gsub("^DFString", ""):gsub("^FString", "")
-    local ok, result = pcall(getfflag, stripped)
-    if ok and result ~= nil then return result, "NativeBare" end
-    local ok2, result2 = pcall(getfflag, flag)
-    if ok2 and result2 ~= nil then return result2, "NativeFull" end
-    local ok3, raw = pcall(readfile, FFlagStoragePath)
-    if ok3 and raw then
-        local ok4, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
-        if ok4 and decoded and decoded[flag] ~= nil then return decoded[flag], "Persisted" end
-    end
-    return nil, "FlagNotFound"
-end
-
-function FFlagHandler:BulkSet(flagsTable)
-    local results = { success = {}, failed = {}, total = 0 }
-    for flag, value in pairs(flagsTable) do
-        results.total = results.total + 1
-        local ok, msg = self:SetFFlag(flag, value)
-        if ok then
-            table.insert(results.success, { flag = flag, value = value, method = msg })
-        else
-            table.insert(results.failed, { flag = flag, error = msg })
-        end
-        task.wait(0.05)
-    end
-    return results
-end
-
-function FFlagHandler:ClearFlags()
-    pcall(function() writefile(FFlagStoragePath, "{}") end)
-    return true
-end
-
-function FFlagHandler:GetStats()
-    local stats = { totalInjected = 0 }
-    local ok, raw = pcall(readfile, FFlagStoragePath)
-    if ok and raw then
-        local decoded = HttpService:JSONDecode(raw)
-        for _ in pairs(decoded) do stats.totalInjected = stats.totalInjected + 1 end
-    end
-    return stats
-end
-
-local FFlagPresets = {
-    Performance = {
-        ["DFIntTaskSchedulerTargetFps"] = 0,
-        ["DFIntFrameRateCap"] = 0,
-        ["DFIntRenderShadowMapResolution"] = 256,
-        ["DFIntMaxTextureSize"] = 512,
-        ["DFFlagRenderClutterVoxel"] = false,
-        ["DFIntGraphicsQualityLevel"] = 1,
-    },
-    Graphics = {
-        ["DFIntGraphicsQualityLevel"] = 21,
-        ["DFIntAntiAliasingMode"] = 2,
-        ["DFIntRenderShadowMapResolution"] = 2048,
-        ["DFIntMaxTextureSize"] = 4096,
-        ["DFFlagEnableGraphicsModeAutoDetect"] = false,
-    },
-    Unlock = {
-        ["DFFlagDebugPausePhysicsOnError"] = false,
-        ["DFFlagCharacterAutoJump"] = false,
-        ["DFFlagAllowThirdPartySales"] = true,
-        ["DFFlagUseNewTeleportService"] = false,
-        ["DFFlagDisableTeleportService"] = false,
-        ["DFIntMaxPlayerMovementSpeed"] = 100,
-        ["DFIntMaxPlayerMovementAcceleration"] = 100,
-        ["DFIntJumpPower"] = 80,
-    },
-    FPSUnlock = {
-        ["DFIntTaskSchedulerTargetFps"] = 0,
-        ["DFIntFrameRateCap"] = 0,
-        ["DFIntRenderShadowMapResolution"] = 128,
-        ["DFIntMaxTextureSize"] = 256,
-        ["DFFlagRenderClutterVoxel"] = false,
-        ["DFIntGraphicsQualityLevel"] = 1,
-    },
-}
-
-local FFLeftGroup  = Tabs.FFlags:AddLeftGroupbox("Single Injection")
-local FFRightGroup = Tabs.FFlags:AddRightGroupbox("Bulk Injection & Presets")
-
-FFLeftGroup:AddInput("FlagNameInput", {
-    Text = "Flag Name",
-    Placeholder = "DFIntMaxPlayerMovementSpeed",
-    ClearTextOnFocus = true,
-})
-FFLeftGroup:AddInput("FlagValueInput", {
-    Text = "Flag Value",
-    Placeholder = "100 or true/false",
-    ClearTextOnFocus = true,
-})
-FFLeftGroup:AddDropdown("ValueTypeDropdown", {
-    Text = "Value Type",
-    Values = {"AutoDetect", "Number", "Boolean", "String"},
-    Default = 1,
-})
-FFLeftGroup:AddButton({
-    Text = "Inject Single Flag",
-    Func = function()
-        local flag      = Options.FlagNameInput.Value
-        local value     = Options.FlagValueInput.Value
-        local valueType = Options.ValueTypeDropdown.Value
-        if not flag or flag == "" then
-            Library:Notify({ Title = "Error", Description = "Please enter a flag name", Time = 3 })
-            return
-        end
-        local parsedValue
-        if valueType == "AutoDetect" then
-            if value:lower() == "true" then parsedValue = true
-            elseif value:lower() == "false" then parsedValue = false
-            elseif tonumber(value) then parsedValue = tonumber(value)
-            else parsedValue = value end
-        elseif valueType == "Number" then
-            parsedValue = tonumber(value) or 0
-        elseif valueType == "Boolean" then
-            parsedValue = value:lower() == "true"
-        else
-            parsedValue = value
-        end
-        local ok, msg = FFlagHandler:SetFFlag(flag, parsedValue)
-        if ok then
-            Library:Notify({ Title = "Injected", Description = flag .. " = " .. tostring(parsedValue), Time = 4 })
-        else
-            Library:Notify({ Title = "Failed", Description = "Could not inject: " .. flag, Time = 4 })
-        end
-    end,
-})
-
-FFRightGroup:AddLabel("Bulk Injection (JSON):")
-FFRightGroup:AddInput("BulkInput", {
-    Text = "JSON Data",
-    Placeholder = '{"DFIntMaxPlayerMovementSpeed": 100}',
-    ClearTextOnFocus = false,
-})
-FFRightGroup:AddButton({
-    Text = "Bulk Inject",
-    Func = function()
-        local json = Options.BulkInput.Value
-        if not json or json == "" then
-            Library:Notify({ Title = "Error", Description = "Please enter JSON data", Time = 3 })
-            return
-        end
-        local ok, flags = pcall(function() return HttpService:JSONDecode(json) end)
-        if not ok or type(flags) ~= "table" then
-            Library:Notify({ Title = "Invalid JSON", Description = "Check your JSON syntax", Time = 3 })
-            return
-        end
-        local results = FFlagHandler:BulkSet(flags)
-        Library:Notify({
-            Title = "Bulk Injection Done",
-            Description = "Success: " .. #results.success .. "  Failed: " .. #results.failed,
-            Time = 4,
-        })
-    end,
-})
-
-FFRightGroup:AddDivider()
-FFRightGroup:AddLabel("Presets")
-
-for presetName, flags in pairs(FFlagPresets) do
-    FFRightGroup:AddButton({
-        Text = presetName,
-        Func = function()
-            local results = FFlagHandler:BulkSet(flags)
-            Library:Notify({
-                Title = "Preset Applied",
-                Description = presetName .. ": " .. #results.success .. " flags injected",
-                Time = 3,
-            })
-        end,
-    })
-end
-
-FFRightGroup:AddDivider()
-
-FFRightGroup:AddButton({
-    Text = "Show Stats",
-    Func = function()
-        local stats = FFlagHandler:GetStats()
-        Library:Notify({
-            Title = "FFlags Stats",
-            Description = "Total injected: " .. stats.totalInjected .. " flags",
-            Time = 4,
-        })
-    end,
-})
-FFRightGroup:AddButton({
-    Text = "Clear All Flags",
-    Func = function()
-        FFlagHandler:ClearFlags()
-        Library:Notify({ Title = "Cleared", Description = "All flags cleared", Time = 3 })
-    end,
-})
-
 SettingsGroup = Tabs.Settings:AddLeftGroupbox("Menu Settings")
 SettingsGroup:AddLabel("Global Menu Open/Close Shortcut"):AddKeyPicker("MenuKeybind", { Default = "RightControl", NoUI = true, Text = "Menu keybind" })
 Library.ToggleKeybind = Options.MenuKeybind
@@ -1744,6 +1571,9 @@ SettingsGroup:AddButton({ Text = "Terminate Script & Clear Cache", Func = functi
     resetLighting()
     if colorCorrection then colorCorrection:Destroy() end
     if sunRaysEffect then sunRaysEffect:Destroy() end
+    if hop360Conn then hop360Conn:Disconnect() end
+    if hop360Conn then hop360Conn:Disconnect() end
+    if pixelSurfAutoConn then pixelSurfAutoConn:Disconnect() end
     Library:Unload()
 end })
 ThemeManager:SetLibrary(Library)
@@ -1839,10 +1669,12 @@ SafeConnect(UserInputService.InputBegan, function(input, gameProcessed)
         toggleAutoBounce(newState)
         pcall(function() Toggles.EnableAutoBounceLoop:SetValue(newState) end)
     end
-    if input.KeyCode == Enum.KeyCode[wallClimbKeybind] and wallClimbEnabled and wallClimbMode == "Toggle" then
-        if _G.IsHoldingH then stopWallHold() else startWallHold() end
-    elseif input.KeyCode == Enum.KeyCode[wallClimbKeybind] and wallClimbEnabled and wallClimbMode == "Hold" then
-        startWallHold()
+    if wallClimbEnabled and wallClimbMode ~= "Auto" and input.KeyCode == Enum.KeyCode[wallClimbKeybind] then
+        if wallClimbMode == "Toggle" then
+            if _G.IsHoldingH then stopWallHold() else startWallHold() end
+        elseif wallClimbMode == "Hold" then
+            startWallHold()
+        end
     end
 end)
 SafeConnect(UserInputService.InputEnded, function(input)
@@ -1861,7 +1693,7 @@ SafeConnect(UserInputService.InputEnded, function(input)
         if leftEnum and input.KeyCode == leftEnum then sendKeyEvent(Enum.KeyCode.Left, false)
         elseif rightEnum and input.KeyCode == rightEnum then sendKeyEvent(Enum.KeyCode.Right, false) end
     end
-    if input.KeyCode == Enum.KeyCode[wallClimbKeybind] and wallClimbEnabled and wallClimbMode == "Hold" then
+    if wallClimbEnabled and wallClimbMode == "Hold" and input.KeyCode == Enum.KeyCode[wallClimbKeybind] then
         stopWallHold()
     end
 end)
@@ -1892,5 +1724,5 @@ local function setupCharacter(character)
 end
 if LocalPlayer.Character then task.spawn(setupCharacter, LocalPlayer.Character) end
 SafeConnect(LocalPlayer.CharacterAdded, setupCharacter)
-Library:Notify({ Title = "Movement Dih", Description = "Done!, please follow my tiktok account : @thatoneargo", Time = 5 })
+Library:Notify({ Title = "Movement Dih", Description = "Dead script btw", Time = 5 })
 end)()
